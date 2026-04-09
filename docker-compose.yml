@@ -1,0 +1,354 @@
+services:
+  postgres-catalog:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: catalogdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5433:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-rental:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: rentaldb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-sales:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: salesdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5435:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-auth:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: authdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5436:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  postgres-payment:
+    image: postgres:17
+    environment:
+      POSTGRES_DB: paymentdb
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    ports:
+      - "5437:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS}
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+
+  jaeger:
+    image: jaegertracing/jaeger:2.6.0
+    ports:
+      - "16686:16686"
+      - "4317:4317"
+      - "4318:4318"
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.125.0
+    command: ["--config=/etc/otelcol-contrib/config.yaml"]
+    volumes:
+      - ./deploy/otel-collector-config.yaml:/etc/otelcol-contrib/config.yaml
+    depends_on:
+      - jaeger
+    ports:
+      - "1888:1888"
+
+  auth-migrator:
+    build:
+      context: .
+      dockerfile: src/Services/AuthService/AuthService.Api/Dockerfile
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__AuthDb: Host=postgres-auth;Port=5432;Database=authdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+      AuthSeed__Enabled: ${AUTH_SEED_ENABLED:-false}
+      AuthSeed__ClientPassword: ${AUTH_SEED_CLIENT_PASSWORD:-}
+      AuthSeed__ManagerPassword: ${AUTH_SEED_MANAGER_PASSWORD:-}
+      AuthSeed__AdminPassword: ${AUTH_SEED_ADMIN_PASSWORD:-}
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+
+  catalog-migrator:
+    build:
+      context: .
+      dockerfile: src/Services/CarCatalogService/CarCatalogService.Api/Dockerfile
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__CatalogDb: Host=postgres-catalog;Port=5432;Database=catalogdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres-catalog:
+        condition: service_healthy
+
+  rental-migrator:
+    build:
+      context: .
+      dockerfile: src/Services/RentalService/RentalService.Api/Dockerfile
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__RentalDb: Host=postgres-rental;Port=5432;Database=rentaldb;Username=postgres;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres-rental:
+        condition: service_healthy
+
+  sales-migrator:
+    build:
+      context: .
+      dockerfile: src/Services/SalesService/SalesService.Api/Dockerfile
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__SalesDb: Host=postgres-sales;Port=5432;Database=salesdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres-sales:
+        condition: service_healthy
+
+  payment-migrator:
+    build:
+      context: .
+      dockerfile: src/Services/PaymentService/PaymentService.Api/Dockerfile
+    command: ["--migrate"]
+    environment:
+      ConnectionStrings__PaymentDb: Host=postgres-payment;Port=5432;Database=paymentdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+    depends_on:
+      postgres-payment:
+        condition: service_healthy
+
+  auth-service:
+    build:
+      context: .
+      dockerfile: src/Services/AuthService/AuthService.Api/Dockerfile
+    environment:
+      ASPNETCORE_ENVIRONMENT: Development
+      ConnectionStrings__AuthDb: Host=postgres-auth;Port=5432;Database=authdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+      Jwt__PrivateKeyPem: ${JWT_PRIVATE_KEY_PEM:-}
+      AuthSeed__Enabled: ${AUTH_SEED_ENABLED:-false}
+      AuthSeed__ClientPassword: ${AUTH_SEED_CLIENT_PASSWORD:-}
+      AuthSeed__ManagerPassword: ${AUTH_SEED_MANAGER_PASSWORD:-}
+      AuthSeed__AdminPassword: ${AUTH_SEED_ADMIN_PASSWORD:-}
+    depends_on:
+      postgres-auth:
+        condition: service_healthy
+      auth-migrator:
+        condition: service_completed_successfully
+      otel-collector:
+        condition: service_started
+    ports:
+      - "5004:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  car-catalog-service:
+    build:
+      context: .
+      dockerfile: src/Services/CarCatalogService/CarCatalogService.Api/Dockerfile
+    environment:
+      ConnectionStrings__CatalogDb: Host=postgres-catalog;Port=5432;Database=catalogdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+      Jwt__Issuer: AutoHub.Auth
+      Jwt__Audience: AutoHub.Clients
+      Jwt__JwksUrl: http://auth-service:8080/.well-known/jwks.json
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres-catalog:
+        condition: service_healthy
+      catalog-migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "5001:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  rental-service:
+    build:
+      context: .
+      dockerfile: src/Services/RentalService/RentalService.Api/Dockerfile
+    environment:
+      ConnectionStrings__RentalDb: Host=postgres-rental;Port=5432;Database=rentaldb;Username=postgres;Password=${POSTGRES_PASSWORD}
+      ExternalServices__CatalogApiBaseUrl: http://car-catalog-service:8080
+      Jwt__Issuer: AutoHub.Auth
+      Jwt__Audience: AutoHub.Clients
+      Jwt__JwksUrl: http://auth-service:8080/.well-known/jwks.json
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres-rental:
+        condition: service_healthy
+      rental-migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      car-catalog-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "5002:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  sales-service:
+    build:
+      context: .
+      dockerfile: src/Services/SalesService/SalesService.Api/Dockerfile
+    environment:
+      ConnectionStrings__SalesDb: Host=postgres-sales;Port=5432;Database=salesdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+      ExternalServices__CatalogApiBaseUrl: http://car-catalog-service:8080
+      Jwt__Issuer: AutoHub.Auth
+      Jwt__Audience: AutoHub.Clients
+      Jwt__JwksUrl: http://auth-service:8080/.well-known/jwks.json
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres-sales:
+        condition: service_healthy
+      sales-migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      car-catalog-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "5003:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  payment-service:
+    build:
+      context: .
+      dockerfile: src/Services/PaymentService/PaymentService.Api/Dockerfile
+    environment:
+      ConnectionStrings__PaymentDb: Host=postgres-payment;Port=5432;Database=paymentdb;Username=postgres;Password=${POSTGRES_PASSWORD}
+      ExternalServices__SalesApiBaseUrl: http://sales-service:8080
+      ExternalServices__RentalApiBaseUrl: http://rental-service:8080
+      Jwt__Issuer: AutoHub.Auth
+      Jwt__Audience: AutoHub.Clients
+      Jwt__JwksUrl: http://auth-service:8080/.well-known/jwks.json
+      RabbitMq__Host: rabbitmq
+      RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
+      RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+    depends_on:
+      postgres-payment:
+        condition: service_healthy
+      payment-migrator:
+        condition: service_completed_successfully
+      rabbitmq:
+        condition: service_healthy
+      sales-service:
+        condition: service_healthy
+      rental-service:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "5006:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s
+
+  api-gateway:
+    build:
+      context: .
+      dockerfile: src/Gateway/ApiGateway/Dockerfile
+    environment:
+      Jwt__Issuer: AutoHub.Auth
+      Jwt__Audience: AutoHub.Clients
+      Jwt__JwksUrl: http://auth-service:8080/.well-known/jwks.json
+    depends_on:
+      car-catalog-service:
+        condition: service_healthy
+      auth-service:
+        condition: service_healthy
+      rental-service:
+        condition: service_healthy
+      sales-service:
+        condition: service_healthy
+      payment-service:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
+    ports:
+      - "5000:8080"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://127.0.0.1:8080/health/ready"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 40s

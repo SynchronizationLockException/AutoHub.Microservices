@@ -1,0 +1,31 @@
+<Solution>
+  <Folder Name="/src/" />
+  <Folder Name="/src/BuildingBlocks/">
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Authentication/BuildingBlocks.Authentication.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Hosting/BuildingBlocks.Hosting.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Contracts/BuildingBlocks.Contracts.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Observability/BuildingBlocks.Observability.csproj" />
+  </Folder>
+  <Folder Name="/src/Gateway/">
+    <Project Path="src/Gateway/ApiGateway/ApiGateway.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/" />
+  <Folder Name="/src/Services/AuthService/">
+    <Project Path="src/Services/AuthService/AuthService.Api/AuthService.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/CarCatalogService/">
+    <Project Path="src/Services/CarCatalogService/CarCatalogService.Api/CarCatalogService.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/RentalService/">
+    <Project Path="src/Services/RentalService/RentalService.Api/RentalService.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/SalesService/">
+    <Project Path="src/Services/SalesService/SalesService.Api/SalesService.Api.csproj" />
+  </Folder>
+  <Folder Name="/src/Services/PaymentService/">
+    <Project Path="src/Services/PaymentService/PaymentService.Api/PaymentService.Api.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/AutoHub.IntegrationTests/AutoHub.IntegrationTests.csproj" />
+  </Folder>
+</Solution>
