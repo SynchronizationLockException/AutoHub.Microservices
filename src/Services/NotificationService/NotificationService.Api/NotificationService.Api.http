@@ -1,7 +1,0 @@
-@notificationHost = http://localhost:5197
-
-### Ready probe
-GET {{notificationHost}}/health/ready
-
-### Recent deliveries (JWT Bearer required)
-GET {{notificationHost}}/api/deliveries?take=20

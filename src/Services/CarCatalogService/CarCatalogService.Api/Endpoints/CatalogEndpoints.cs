@@ -6,31 +6,10 @@ namespace CarCatalogService.Api.Endpoints;
 
 public static class CatalogEndpoints
 {
-    private const int DefaultPageSize = 20;
-    private const int MaxPageSize = 100;
-
     public static void MapCatalogEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/cars", async (int? page, int? pageSize, CarCatalogDbContext db, CancellationToken ct) =>
-        {
-            var currentPage = page.GetValueOrDefault(1);
-            var currentPageSize = pageSize.GetValueOrDefault(DefaultPageSize);
-            if (currentPage <= 0 || currentPageSize <= 0)
-            {
-                return Results.BadRequest("Query params page and pageSize must be positive integers.");
-            }
-
-            currentPageSize = Math.Min(currentPageSize, MaxPageSize);
-            var skip = (currentPage - 1) * currentPageSize;
-            var cars = await db.Cars
-                .AsNoTracking()
-                .OrderBy(x => x.Id)
-                .Skip(skip)
-                .Take(currentPageSize)
-                .ToListAsync(ct);
-
-            return Results.Ok(cars);
-        });
+        app.MapGet("/api/cars", async (CarCatalogDbContext db, CancellationToken ct) =>
+            await db.Cars.AsNoTracking().ToListAsync(ct));
 
         app.MapGet("/api/cars/{id:guid}", async (Guid id, CarCatalogDbContext db, CancellationToken ct) =>
         {

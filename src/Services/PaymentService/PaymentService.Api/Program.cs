@@ -21,7 +21,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-await app.Services.InitializePaymentDataAsync(runMigrations: app.Environment.IsDevelopment());
+await app.Services.InitializePaymentDataAsync(runMigrations: false);
 
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();

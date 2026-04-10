@@ -21,20 +21,8 @@ public static class ServiceCollectionExtensions
             options.UseNpgsql(configuration.GetRequiredConnectionString("SalesDb")));
         services.AddHostedService<SalesOutboxPublisher>();
         services.AddHttpClient("catalog", client =>
-            {
-                client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:CatalogApiBaseUrl"));
-                client.Timeout = TimeSpan.FromSeconds(10);
-            })
-            .AddStandardResilienceHandler(options =>
-            {
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(12);
-                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(4);
-                options.Retry.MaxRetryAttempts = 2;
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(20);
-                options.CircuitBreaker.FailureRatio = 0.5;
-                options.CircuitBreaker.MinimumThroughput = 10;
-                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
-            });
+                client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:CatalogApiBaseUrl")))
+            .AddStandardResilienceHandler();
         services.AddOpenTelemetryObservability(configuration, "sales-service");
         services.AddAutoHubJwtBearer(configuration);
         services.AddAuthorization();

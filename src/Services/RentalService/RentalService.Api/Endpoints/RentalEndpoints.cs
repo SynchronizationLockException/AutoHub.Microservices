@@ -11,39 +11,22 @@ namespace RentalService.Api.Endpoints;
 
 public static class RentalEndpoints
 {
-    private const int DefaultPageSize = 20;
-    private const int MaxPageSize = 100;
-
     public static void MapRentalEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/rentals", async (ClaimsPrincipal principal, int? page, int? pageSize, RentalDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/rentals", async (ClaimsPrincipal principal, RentalDbContext db, CancellationToken ct) =>
         {
             if (!TryGetOwnerScope(principal, out var deny, out var ownerFilter))
             {
                 return deny;
             }
 
-            var currentPage = page.GetValueOrDefault(1);
-            var currentPageSize = pageSize.GetValueOrDefault(DefaultPageSize);
-            if (currentPage <= 0 || currentPageSize <= 0)
-            {
-                return Results.BadRequest("Query params page and pageSize must be positive integers.");
-            }
-
-            currentPageSize = Math.Min(currentPageSize, MaxPageSize);
             var query = db.Rentals.AsNoTracking();
             if (ownerFilter is not null)
             {
                 query = query.Where(r => r.OwnerUsername == ownerFilter);
             }
 
-            var skip = (currentPage - 1) * currentPageSize;
-            var items = await query
-                .OrderByDescending(x => x.CreatedAtUtc)
-                .Skip(skip)
-                .Take(currentPageSize)
-                .ToListAsync(ct);
-            return Results.Ok(items);
+            return Results.Ok(await query.ToListAsync(ct));
         }).RequireAuthorization();
 
         app.MapGet("/api/rentals/{id:guid}", async (Guid id, ClaimsPrincipal principal, RentalDbContext db, CancellationToken ct) =>

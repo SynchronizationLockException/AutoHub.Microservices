@@ -24,17 +24,4 @@ jobs:
         run: dotnet build AutoHub.Microservices.slnx -c Release --no-restore
 
       - name: Test
-        run: dotnet test AutoHub.Microservices.slnx -c Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
-
-      - name: Load smoke (non-blocking)
-        continue-on-error: true
-        run: dotnet test tests/AutoHub.IntegrationTests/AutoHub.IntegrationTests.csproj -c Release --no-build --verbosity normal --filter "Category=LoadSmoke"
-
-      - name: Upload test and coverage artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: test-results-and-coverage
-          path: |
-            TestResults/**/*.trx
-            TestResults/**/coverage.cobertura.xml
+        run: dotnet test AutoHub.Microservices.slnx -c Release --no-build --verbosity normal

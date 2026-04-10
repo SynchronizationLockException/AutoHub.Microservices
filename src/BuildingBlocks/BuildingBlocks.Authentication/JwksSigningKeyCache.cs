@@ -2,20 +2,11 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
-using System.Diagnostics;
-using System.Diagnostics.Metrics;
 
 namespace BuildingBlocks.Authentication;
 
 public sealed class JwksSigningKeyCache : IDisposable
 {
-    private static readonly Meter Meter = new("BuildingBlocks.Authentication");
-    private static readonly Histogram<double> ResolveDurationMs =
-        Meter.CreateHistogram<double>("auth.jwks.resolve.duration.ms", unit: "ms");
-    private static readonly Histogram<double> RefreshDurationMs =
-        Meter.CreateHistogram<double>("auth.jwks.refresh.duration.ms", unit: "ms");
-    private static readonly Counter<long> RefreshFailures =
-        Meter.CreateCounter<long>("auth.jwks.refresh.failures");
     private readonly IHttpClientFactory _httpClientFactory;
     private readonly ILogger<JwksSigningKeyCache> _logger;
     private readonly string _jwksUrl;
@@ -46,7 +37,6 @@ public sealed class JwksSigningKeyCache : IDisposable
 
     public IEnumerable<SecurityKey> ResolveSigningKeys(string? kid)
     {
-        var stopwatch = Stopwatch.StartNew();
         TriggerRefreshIfNeeded();
         IReadOnlyList<SecurityKey> keys;
         lock (_lock)
@@ -56,15 +46,10 @@ public sealed class JwksSigningKeyCache : IDisposable
 
         if (string.IsNullOrEmpty(kid))
         {
-            stopwatch.Stop();
-            ResolveDurationMs.Record(stopwatch.Elapsed.TotalMilliseconds);
             return keys;
         }
 
-        var resolved = keys.Where(k => string.Equals(k.KeyId, kid, StringComparison.OrdinalIgnoreCase)).ToArray();
-        stopwatch.Stop();
-        ResolveDurationMs.Record(stopwatch.Elapsed.TotalMilliseconds);
-        return resolved;
+        return keys.Where(k => string.Equals(k.KeyId, kid, StringComparison.OrdinalIgnoreCase));
     }
 
     public void Invalidate()
@@ -82,14 +67,8 @@ public sealed class JwksSigningKeyCache : IDisposable
     {
         var now = DateTimeOffset.UtcNow;
         var shouldRefresh = false;
-        var hasJwks = false;
-        var cacheExpiresUtc = DateTimeOffset.MinValue;
-        var circuitOpenUntilUtc = DateTimeOffset.MinValue;
         lock (_lock)
         {
-            hasJwks = _jwks is not null;
-            cacheExpiresUtc = _cacheExpiresUtc;
-            circuitOpenUntilUtc = _circuitOpenUntilUtc;
             if (_jwks is null || now >= _cacheExpiresUtc)
             {
                 shouldRefresh = now >= _circuitOpenUntilUtc;
@@ -106,11 +85,6 @@ public sealed class JwksSigningKeyCache : IDisposable
             return;
         }
 
-        _logger.LogDebug(
-            "Scheduling JWKS refresh. HasJwks: {HasJwks}, CacheExpiresUtc: {CacheExpiresUtc}, CircuitOpenUntilUtc: {CircuitOpenUntilUtc}.",
-            hasJwks,
-            cacheExpiresUtc,
-            circuitOpenUntilUtc);
         FireAndForgetRefresh();
     }
 
@@ -126,7 +100,6 @@ public sealed class JwksSigningKeyCache : IDisposable
 
     private async Task RefreshInBackgroundAsync()
     {
-        var refreshStopwatch = Stopwatch.StartNew();
         try
         {
             await _refreshGate.WaitAsync().ConfigureAwait(false);
@@ -159,10 +132,6 @@ public sealed class JwksSigningKeyCache : IDisposable
                     _circuitOpenUntilUtc = DateTimeOffset.MinValue;
                     _consecutiveFailures = 0;
                 }
-
-                _logger.LogDebug(
-                    "JWKS refreshed successfully. Signing keys: {SigningKeyCount}.",
-                    signingKeys.Length);
             }
             catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
             {
@@ -184,7 +153,6 @@ public sealed class JwksSigningKeyCache : IDisposable
                     "Failed to refresh JWKS from {JwksUrl}. Circuit open for {BackoffSeconds} seconds.",
                     _jwksUrl,
                     backoff.TotalSeconds);
-                RefreshFailures.Add(1);
             }
             finally
             {
@@ -193,8 +161,6 @@ public sealed class JwksSigningKeyCache : IDisposable
         }
         finally
         {
-            refreshStopwatch.Stop();
-            RefreshDurationMs.Record(refreshStopwatch.Elapsed.TotalMilliseconds);
             Interlocked.Exchange(ref _refreshScheduled, 0);
         }
     }

@@ -21,7 +21,7 @@ if (app.Environment.IsDevelopment())
     app.MapOpenApi();
 }
 
-await app.Services.InitializeCatalogDataAsync(runMigrations: app.Environment.IsDevelopment());
+await app.Services.InitializeCatalogDataAsync(runMigrations: false);
 
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();
