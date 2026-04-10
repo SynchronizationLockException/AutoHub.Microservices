@@ -40,9 +40,9 @@ public static class OutboxPublisherExecutor
             {
                 var factory = new ConnectionFactory
                 {
-                    HostName = configuration["RabbitMq:Host"] ?? "rabbitmq",
-                    UserName = configuration["RabbitMq:Username"] ?? "guest",
-                    Password = configuration["RabbitMq:Password"] ?? "guest"
+                    HostName = configuration.GetRequiredValue("RabbitMq:Host"),
+                    UserName = configuration.GetRequiredValue("RabbitMq:Username"),
+                    Password = configuration.GetRequiredValue("RabbitMq:Password")
                 };
 
                 using var connection = factory.CreateConnection();

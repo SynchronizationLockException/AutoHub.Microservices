@@ -31,6 +31,18 @@ internal sealed class ConfigureAutoHubJwtBearerFromJwks(
             ClockSkew = TimeSpan.FromMinutes(2),
             IssuerSigningKeyResolver = (_, _, kid, _) => cache.ResolveSigningKeys(kid)
         };
+        options.Events = new JwtBearerEvents
+        {
+            OnAuthenticationFailed = context =>
+            {
+                if (context.Exception is SecurityTokenSignatureKeyNotFoundException)
+                {
+                    cache.Invalidate();
+                }
+
+                return Task.CompletedTask;
+            }
+        };
     }
 }
 

@@ -18,13 +18,13 @@ public static class ServiceCollectionExtensions
             .AddDbContextCheck<PaymentDbContext>(tags: [HealthCheckTags.Ready])
             .AddAutoHubRabbitMqReady(configuration);
         services.AddDbContext<PaymentDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("PaymentDb")));
+            options.UseNpgsql(configuration.GetRequiredConnectionString("PaymentDb")));
         services.AddHostedService<PaymentOutboxPublisher>();
         services.AddHttpClient("sales", client =>
-                client.BaseAddress = new Uri(configuration["ExternalServices:SalesApiBaseUrl"]!))
+                client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:SalesApiBaseUrl")))
             .AddStandardResilienceHandler();
         services.AddHttpClient("rentals", client =>
-                client.BaseAddress = new Uri(configuration["ExternalServices:RentalApiBaseUrl"]!))
+                client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:RentalApiBaseUrl")))
             .AddStandardResilienceHandler();
         services.AddOpenTelemetryObservability(configuration, "payment-service");
         services.AddAutoHubJwtBearer(configuration);

@@ -18,10 +18,10 @@ public static class ServiceCollectionExtensions
             .AddDbContextCheck<RentalDbContext>(tags: [HealthCheckTags.Ready])
             .AddAutoHubRabbitMqReady(configuration);
         services.AddDbContext<RentalDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("RentalDb")));
+            options.UseNpgsql(configuration.GetRequiredConnectionString("RentalDb")));
         services.AddHostedService<RentalOutboxPublisher>();
         services.AddHttpClient("catalog", client =>
-                client.BaseAddress = new Uri(configuration["ExternalServices:CatalogApiBaseUrl"]!))
+                client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:CatalogApiBaseUrl")))
             .AddStandardResilienceHandler();
         services.AddOpenTelemetryObservability(configuration, "rental-service");
         services.AddAutoHubJwtBearer(configuration);

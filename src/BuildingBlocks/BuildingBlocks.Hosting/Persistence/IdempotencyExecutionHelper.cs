@@ -37,44 +37,68 @@ public static class IdempotencyExecutionHelper
 
         var key = keyValues.ToString().Trim();
         var keyHash = ComputeHash(key);
-
-        await using var tx = await db.Database.BeginTransactionAsync(ct);
         var set = db.Set<TRecord>();
 
-        var existing = await set.FirstOrDefaultAsync(x => x.KeyHash == keyHash && x.Path == pathKey, ct);
-        if (existing is not null && existing.StatusCode is not null)
+        var existing = await set.AsNoTracking().FirstOrDefaultAsync(x => x.KeyHash == keyHash && x.Path == pathKey, ct);
+        if (existing is not null)
         {
-            var status = existing.StatusCode.Value;
-            var body = existing.ResponseBody;
-
-            if (string.IsNullOrEmpty(body))
+            if (existing.StatusCode is not null)
             {
-                return Results.StatusCode(status);
+                return await WriteReplayAsync(httpContext, existing.StatusCode.Value, existing.ResponseBody, ct);
             }
 
-            httpContext.Response.StatusCode = status;
-            httpContext.Response.Headers[HeaderNames.ContentType] = "application/json";
-            await httpContext.Response.WriteAsync(body, ct);
-            return Results.Empty;
+            // The first request is still executing; do not run side effects twice.
+            return Results.Conflict("A request with this Idempotency-Key is already in progress.");
         }
 
-        if (existing is null)
+        try
         {
             set.Add(createRecord(keyHash, pathKey));
             await db.SaveChangesAsync(ct);
-            existing = await set.FirstAsync(x => x.KeyHash == keyHash && x.Path == pathKey, ct);
+        }
+        catch (DbUpdateException)
+        {
+            var concurrent = await set.AsNoTracking().FirstOrDefaultAsync(x => x.KeyHash == keyHash && x.Path == pathKey, ct);
+            if (concurrent is not null && concurrent.StatusCode is not null)
+            {
+                return await WriteReplayAsync(httpContext, concurrent.StatusCode.Value, concurrent.ResponseBody, ct);
+            }
+
+            return Results.Conflict("A request with this Idempotency-Key is already in progress.");
         }
 
         var result = await action();
         var (statusCode, bodyJson) = await ToStatusAndBodyAsync(result, ct);
 
+        existing = await set.FirstOrDefaultAsync(x => x.KeyHash == keyHash && x.Path == pathKey, ct);
+        if (existing is null)
+        {
+            set.Add(createRecord(keyHash, pathKey));
+            existing = await set.FirstAsync(x => x.KeyHash == keyHash && x.Path == pathKey, ct);
+        }
+
         existing.StatusCode = statusCode;
         existing.ResponseBody = bodyJson;
-
         await db.SaveChangesAsync(ct);
-        await tx.CommitAsync(ct);
 
         return result;
+    }
+
+    private static async Task<IResult> WriteReplayAsync(
+        HttpContext httpContext,
+        int statusCode,
+        string? body,
+        CancellationToken ct)
+    {
+        if (string.IsNullOrEmpty(body))
+        {
+            return Results.StatusCode(statusCode);
+        }
+
+        httpContext.Response.StatusCode = statusCode;
+        httpContext.Response.Headers[HeaderNames.ContentType] = "application/json";
+        await httpContext.Response.WriteAsync(body, ct);
+        return Results.Empty;
     }
 
     private static string ComputeHash(string key)

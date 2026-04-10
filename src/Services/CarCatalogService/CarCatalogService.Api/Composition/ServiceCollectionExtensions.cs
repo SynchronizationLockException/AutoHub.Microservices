@@ -17,7 +17,7 @@ public static class ServiceCollectionExtensions
             .AddDbContextCheck<CarCatalogDbContext>(tags: [HealthCheckTags.Ready])
             .AddAutoHubRabbitMqReady(configuration);
         services.AddDbContext<CarCatalogDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("CatalogDb")));
+            options.UseNpgsql(configuration.GetRequiredConnectionString("CatalogDb")));
         services.AddHostedService<CatalogEventsConsumer>();
         services.AddOpenTelemetryObservability(configuration, "car-catalog-service");
         services.AddAutoHubJwtBearer(configuration);

@@ -22,7 +22,7 @@ public static class HealthChecksBuilderExtensions
             return builder;
         }
 
-        var host = configuration["RabbitMq:Host"] ?? "localhost";
+        var host = configuration.GetRequiredValue("RabbitMq:Host");
 
         return builder.AddAsyncCheck(
             "rabbitmq",

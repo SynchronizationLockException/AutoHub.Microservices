@@ -13,14 +13,24 @@ public sealed class JwksSigningKeyCache(
         ?? throw new InvalidOperationException("Jwt:JwksUrl is required when using JWKS validation.");
 
     private readonly object _lock = new();
+    private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private JsonWebKeySet? _jwks;
     private DateTimeOffset _cacheExpiresUtc = DateTimeOffset.MinValue;
+    private DateTimeOffset _circuitOpenUntilUtc = DateTimeOffset.MinValue;
+    private int _consecutiveFailures;
+    private int _refreshScheduled;
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
+    private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(1);
 
     public IEnumerable<SecurityKey> ResolveSigningKeys(string? kid)
     {
-        EnsureFreshKeys();
-        var keys = _jwks?.GetSigningKeys() ?? Enumerable.Empty<SecurityKey>();
+        TriggerRefreshIfNeeded();
+        IEnumerable<SecurityKey> keys;
+        lock (_lock)
+        {
+            keys = _jwks?.GetSigningKeys() ?? Enumerable.Empty<SecurityKey>();
+        }
+
         if (string.IsNullOrEmpty(kid))
         {
             return keys;
@@ -29,44 +39,100 @@ public sealed class JwksSigningKeyCache(
         return keys.Where(k => string.Equals(k.KeyId, kid, StringComparison.OrdinalIgnoreCase));
     }
 
-    private void EnsureFreshKeys()
-    {
-        lock (_lock)
-        {
-            if (_jwks is not null && DateTimeOffset.UtcNow < _cacheExpiresUtc)
-            {
-                return;
-            }
-
-            RefreshLocked();
-        }
-    }
-
     public void Invalidate()
     {
         lock (_lock)
         {
-            _jwks = null;
             _cacheExpiresUtc = DateTimeOffset.MinValue;
+            _circuitOpenUntilUtc = DateTimeOffset.MinValue;
         }
+
+        TriggerRefreshIfNeeded();
     }
 
-    private void RefreshLocked()
+    private void TriggerRefreshIfNeeded()
+    {
+        var now = DateTimeOffset.UtcNow;
+        var shouldRefresh = false;
+        lock (_lock)
+        {
+            if (_jwks is null || now >= _cacheExpiresUtc)
+            {
+                shouldRefresh = now >= _circuitOpenUntilUtc;
+            }
+        }
+
+        if (!shouldRefresh)
+        {
+            return;
+        }
+
+        if (Interlocked.CompareExchange(ref _refreshScheduled, 1, 0) != 0)
+        {
+            return;
+        }
+
+        _ = RefreshInBackgroundAsync();
+    }
+
+    private async Task RefreshInBackgroundAsync()
     {
         try
         {
-            var client = httpClientFactory.CreateClient("autohub_jwks");
-            var json = client.GetStringAsync(_jwksUrl).GetAwaiter().GetResult();
-            _jwks = new JsonWebKeySet(json);
-            _cacheExpiresUtc = DateTimeOffset.UtcNow.Add(CacheDuration);
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Failed to refresh JWKS from {JwksUrl}.", _jwksUrl);
-            if (_jwks is null)
+            await _refreshGate.WaitAsync().ConfigureAwait(false);
+            try
             {
-                throw;
+                var now = DateTimeOffset.UtcNow;
+                lock (_lock)
+                {
+                    if (_jwks is not null && now < _cacheExpiresUtc)
+                    {
+                        return;
+                    }
+
+                    if (now < _circuitOpenUntilUtc)
+                    {
+                        return;
+                    }
+                }
+
+                var client = httpClientFactory.CreateClient("autohub_jwks");
+                var json = await client.GetStringAsync(_jwksUrl).ConfigureAwait(false);
+                var jwks = new JsonWebKeySet(json);
+
+                lock (_lock)
+                {
+                    _jwks = jwks;
+                    _cacheExpiresUtc = DateTimeOffset.UtcNow.Add(CacheDuration);
+                    _circuitOpenUntilUtc = DateTimeOffset.MinValue;
+                    _consecutiveFailures = 0;
+                }
             }
+            catch (Exception ex)
+            {
+                TimeSpan backoff;
+                lock (_lock)
+                {
+                    _consecutiveFailures++;
+                    var rawSeconds = Math.Pow(2, Math.Min(_consecutiveFailures, 6));
+                    backoff = TimeSpan.FromSeconds(Math.Min(rawSeconds, MaxBackoff.TotalSeconds));
+                    _circuitOpenUntilUtc = DateTimeOffset.UtcNow.Add(backoff);
+                }
+
+                logger.LogWarning(
+                    ex,
+                    "Failed to refresh JWKS from {JwksUrl}. Circuit open for {BackoffSeconds} seconds.",
+                    _jwksUrl,
+                    backoff.TotalSeconds);
+            }
+            finally
+            {
+                _refreshGate.Release();
+            }
+        }
+        finally
+        {
+            Interlocked.Exchange(ref _refreshScheduled, 0);
         }
     }
 }
