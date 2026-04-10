@@ -25,6 +25,9 @@
   <Folder Name="/src/Services/PaymentService/">
     <Project Path="src/Services/PaymentService/PaymentService.Api/PaymentService.Api.csproj" />
   </Folder>
+  <Folder Name="/src/Services/NotificationService/">
+    <Project Path="src/Services/NotificationService/NotificationService.Api/NotificationService.Api.csproj" />
+  </Folder>
   <Folder Name="/tests/">
     <Project Path="tests/AutoHub.IntegrationTests/AutoHub.IntegrationTests.csproj" />
   </Folder>

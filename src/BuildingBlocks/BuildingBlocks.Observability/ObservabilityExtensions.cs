@@ -31,6 +31,8 @@ public static class ObservabilityExtensions
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
                     .AddRuntimeInstrumentation()
+                    .AddMeter("BuildingBlocks.Hosting")
+                    .AddMeter("BuildingBlocks.Authentication")
                     .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint));
             });
 
