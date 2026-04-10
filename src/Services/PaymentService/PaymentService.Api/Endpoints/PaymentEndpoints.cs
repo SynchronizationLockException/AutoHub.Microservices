@@ -13,22 +13,39 @@ namespace PaymentService.Api.Endpoints;
 
 public static class PaymentEndpoints
 {
+    private const int DefaultPageSize = 20;
+    private const int MaxPageSize = 100;
+
     public static void MapPaymentEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/payments", async (ClaimsPrincipal principal, PaymentDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/payments", async (ClaimsPrincipal principal, int? page, int? pageSize, PaymentDbContext db, CancellationToken ct) =>
         {
             if (!TryGetOwnerScope(principal, out var deny, out var ownerFilter))
             {
                 return deny;
             }
 
+            var currentPage = page.GetValueOrDefault(1);
+            var currentPageSize = pageSize.GetValueOrDefault(DefaultPageSize);
+            if (currentPage <= 0 || currentPageSize <= 0)
+            {
+                return Results.BadRequest("Query params page and pageSize must be positive integers.");
+            }
+
+            currentPageSize = Math.Min(currentPageSize, MaxPageSize);
             var query = db.Payments.AsNoTracking().AsQueryable();
             if (ownerFilter is not null)
             {
                 query = query.Where(p => p.OwnerUsername == ownerFilter);
             }
 
-            return Results.Ok(await query.OrderByDescending(x => x.CreatedAtUtc).ToListAsync(ct));
+            var skip = (currentPage - 1) * currentPageSize;
+            var items = await query
+                .OrderByDescending(x => x.CreatedAtUtc)
+                .Skip(skip)
+                .Take(currentPageSize)
+                .ToListAsync(ct);
+            return Results.Ok(items);
         }).RequireAuthorization();
 
         app.MapGet("/api/payments/{id:guid}", async (Guid id, ClaimsPrincipal principal, PaymentDbContext db, CancellationToken ct) =>

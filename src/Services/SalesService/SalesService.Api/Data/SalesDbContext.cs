@@ -11,6 +11,9 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<SaleOrder>()
+            .HasIndex(x => new { x.OwnerUsername, x.SoldAtUtc });
+
         modelBuilder.Entity<IdempotentRequest>()
             .HasIndex(x => new { x.KeyHash, x.Path })
             .IsUnique();

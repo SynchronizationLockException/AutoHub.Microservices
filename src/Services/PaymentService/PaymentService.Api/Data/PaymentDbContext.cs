@@ -14,6 +14,8 @@ public sealed class PaymentDbContext(DbContextOptions<PaymentDbContext> options)
         modelBuilder.Entity<Payment>()
             .HasIndex(x => new { x.ReferenceKind, x.ReferenceId })
             .IsUnique();
+        modelBuilder.Entity<Payment>()
+            .HasIndex(x => new { x.OwnerUsername, x.CreatedAtUtc });
 
         modelBuilder.Entity<IdempotentRequest>()
             .HasIndex(x => new { x.KeyHash, x.Path })

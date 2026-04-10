@@ -2,18 +2,21 @@
 using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using Npgsql.EntityFrameworkCore.PostgreSQL.Metadata;
-using RentalService.Api.Data;
+using SalesService.Api.Data;
 
 #nullable disable
 
-namespace RentalService.Api.Migrations
+namespace SalesService.Api.Migrations
 {
-    [DbContext(typeof(RentalDbContext))]
-    partial class RentalDbContextModelSnapshot : ModelSnapshot
+    [DbContext(typeof(SalesDbContext))]
+    [Migration("20260410174648_AddOwnerSoldAtIndex")]
+    partial class AddOwnerSoldAtIndex
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -22,7 +25,7 @@ namespace RentalService.Api.Migrations
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
 
-            modelBuilder.Entity("RentalService.Api.Models.IdempotentRequest", b =>
+            modelBuilder.Entity("SalesService.Api.Models.IdempotentRequest", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -53,7 +56,7 @@ namespace RentalService.Api.Migrations
                     b.ToTable("IdempotentRequests");
                 });
 
-            modelBuilder.Entity("RentalService.Api.Models.OutboxMessage", b =>
+            modelBuilder.Entity("SalesService.Api.Models.OutboxMessage", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -78,7 +81,7 @@ namespace RentalService.Api.Migrations
                     b.ToTable("OutboxMessages");
                 });
 
-            modelBuilder.Entity("RentalService.Api.Models.RentalContract", b =>
+            modelBuilder.Entity("SalesService.Api.Models.SaleOrder", b =>
                 {
                     b.Property<Guid>("Id")
                         .ValueGeneratedOnAdd()
@@ -87,34 +90,25 @@ namespace RentalService.Api.Migrations
                     b.Property<Guid>("CarId")
                         .HasColumnType("uuid");
 
-                    b.Property<DateTime>("CreatedAtUtc")
-                        .HasColumnType("timestamp with time zone");
-
                     b.Property<string>("CustomerName")
                         .IsRequired()
                         .HasColumnType("text");
-
-                    b.Property<DateOnly>("EndDate")
-                        .HasColumnType("date");
 
                     b.Property<string>("OwnerUsername")
                         .IsRequired()
                         .HasColumnType("text");
 
-                    b.Property<decimal>("PricePerDay")
+                    b.Property<decimal>("Price")
                         .HasColumnType("numeric");
 
-                    b.Property<DateOnly>("StartDate")
-                        .HasColumnType("date");
-
-                    b.Property<decimal>("TotalPrice")
-                        .HasColumnType("numeric");
+                    b.Property<DateTime>("SoldAtUtc")
+                        .HasColumnType("timestamp with time zone");
 
                     b.HasKey("Id");
 
-                    b.HasIndex("OwnerUsername", "CreatedAtUtc");
+                    b.HasIndex("OwnerUsername", "SoldAtUtc");
 
-                    b.ToTable("Rentals");
+                    b.ToTable("Sales");
                 });
 #pragma warning restore 612, 618
         }

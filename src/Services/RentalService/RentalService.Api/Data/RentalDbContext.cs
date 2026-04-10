@@ -11,6 +11,9 @@ public sealed class RentalDbContext(DbContextOptions<RentalDbContext> options) :
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<RentalContract>()
+            .HasIndex(x => new { x.OwnerUsername, x.CreatedAtUtc });
+
         modelBuilder.Entity<IdempotentRequest>()
             .HasIndex(x => new { x.KeyHash, x.Path })
             .IsUnique();

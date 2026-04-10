@@ -11,22 +11,39 @@ namespace SalesService.Api.Endpoints;
 
 public static class SalesEndpoints
 {
+    private const int DefaultPageSize = 20;
+    private const int MaxPageSize = 100;
+
     public static void MapSalesEndpoints(this WebApplication app)
     {
-        app.MapGet("/api/sales", async (ClaimsPrincipal principal, SalesDbContext db, CancellationToken ct) =>
+        app.MapGet("/api/sales", async (ClaimsPrincipal principal, int? page, int? pageSize, SalesDbContext db, CancellationToken ct) =>
         {
             if (!TryGetOwnerScope(principal, out var deny, out var ownerFilter))
             {
                 return deny;
             }
 
+            var currentPage = page.GetValueOrDefault(1);
+            var currentPageSize = pageSize.GetValueOrDefault(DefaultPageSize);
+            if (currentPage <= 0 || currentPageSize <= 0)
+            {
+                return Results.BadRequest("Query params page and pageSize must be positive integers.");
+            }
+
+            currentPageSize = Math.Min(currentPageSize, MaxPageSize);
             var query = db.Sales.AsNoTracking();
             if (ownerFilter is not null)
             {
                 query = query.Where(s => s.OwnerUsername == ownerFilter);
             }
 
-            return Results.Ok(await query.ToListAsync(ct));
+            var skip = (currentPage - 1) * currentPageSize;
+            var items = await query
+                .OrderByDescending(x => x.SoldAtUtc)
+                .Skip(skip)
+                .Take(currentPageSize)
+                .ToListAsync(ct);
+            return Results.Ok(items);
         }).RequireAuthorization();
 
         app.MapGet("/api/sales/{id:guid}", async (Guid id, ClaimsPrincipal principal, SalesDbContext db, CancellationToken ct) =>
