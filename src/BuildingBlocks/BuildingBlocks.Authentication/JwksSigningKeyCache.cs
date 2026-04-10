@@ -1,34 +1,47 @@
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.IdentityModel.Tokens;
 
 namespace BuildingBlocks.Authentication;
 
-public sealed class JwksSigningKeyCache(
-    IHttpClientFactory httpClientFactory,
-    IConfiguration configuration,
-    ILogger<JwksSigningKeyCache> logger)
+public sealed class JwksSigningKeyCache : IDisposable
 {
-    private readonly string _jwksUrl = configuration["Jwt:JwksUrl"]
-        ?? throw new InvalidOperationException("Jwt:JwksUrl is required when using JWKS validation.");
-
+    private readonly IHttpClientFactory _httpClientFactory;
+    private readonly ILogger<JwksSigningKeyCache> _logger;
+    private readonly string _jwksUrl;
     private readonly object _lock = new();
     private readonly SemaphoreSlim _refreshGate = new(1, 1);
     private JsonWebKeySet? _jwks;
+    private IReadOnlyList<SecurityKey> _signingKeys = [];
     private DateTimeOffset _cacheExpiresUtc = DateTimeOffset.MinValue;
     private DateTimeOffset _circuitOpenUntilUtc = DateTimeOffset.MinValue;
     private int _consecutiveFailures;
     private int _refreshScheduled;
+    private readonly CancellationTokenSource _cancellationTokenSource = new();
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan MaxBackoff = TimeSpan.FromMinutes(1);
+
+    public JwksSigningKeyCache(
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration,
+        ILogger<JwksSigningKeyCache> logger,
+        IHostApplicationLifetime appLifetime)
+    {
+        _httpClientFactory = httpClientFactory;
+        _logger = logger;
+        _jwksUrl = configuration["Jwt:JwksUrl"]
+            ?? throw new InvalidOperationException("Jwt:JwksUrl is required when using JWKS validation.");
+        appLifetime.ApplicationStopping.Register(() => _cancellationTokenSource.Cancel());
+    }
 
     public IEnumerable<SecurityKey> ResolveSigningKeys(string? kid)
     {
         TriggerRefreshIfNeeded();
-        IEnumerable<SecurityKey> keys;
+        IReadOnlyList<SecurityKey> keys;
         lock (_lock)
         {
-            keys = _jwks?.GetSigningKeys() ?? Enumerable.Empty<SecurityKey>();
+            keys = _signingKeys;
         }
 
         if (string.IsNullOrEmpty(kid))
@@ -72,7 +85,17 @@ public sealed class JwksSigningKeyCache(
             return;
         }
 
-        _ = RefreshInBackgroundAsync();
+        FireAndForgetRefresh();
+    }
+
+    private void FireAndForgetRefresh()
+    {
+        var task = RefreshInBackgroundAsync();
+        task.ContinueWith(
+            t => _logger.LogError(t.Exception, "JWKS background refresh crashed."),
+            CancellationToken.None,
+            TaskContinuationOptions.OnlyOnFaulted | TaskContinuationOptions.ExecuteSynchronously,
+            TaskScheduler.Default);
     }
 
     private async Task RefreshInBackgroundAsync()
@@ -96,17 +119,23 @@ public sealed class JwksSigningKeyCache(
                     }
                 }
 
-                var client = httpClientFactory.CreateClient("autohub_jwks");
-                var json = await client.GetStringAsync(_jwksUrl).ConfigureAwait(false);
+                var client = _httpClientFactory.CreateClient("autohub_jwks");
+                var json = await client.GetStringAsync(_jwksUrl, _cancellationTokenSource.Token).ConfigureAwait(false);
                 var jwks = new JsonWebKeySet(json);
+                var signingKeys = jwks.GetSigningKeys().ToArray();
 
                 lock (_lock)
                 {
                     _jwks = jwks;
+                    _signingKeys = signingKeys;
                     _cacheExpiresUtc = DateTimeOffset.UtcNow.Add(CacheDuration);
                     _circuitOpenUntilUtc = DateTimeOffset.MinValue;
                     _consecutiveFailures = 0;
                 }
+            }
+            catch (OperationCanceledException) when (_cancellationTokenSource.IsCancellationRequested)
+            {
+                // App is shutting down; avoid treating cancellation as a refresh failure.
             }
             catch (Exception ex)
             {
@@ -119,7 +148,7 @@ public sealed class JwksSigningKeyCache(
                     _circuitOpenUntilUtc = DateTimeOffset.UtcNow.Add(backoff);
                 }
 
-                logger.LogWarning(
+                _logger.LogWarning(
                     ex,
                     "Failed to refresh JWKS from {JwksUrl}. Circuit open for {BackoffSeconds} seconds.",
                     _jwksUrl,
@@ -134,5 +163,12 @@ public sealed class JwksSigningKeyCache(
         {
             Interlocked.Exchange(ref _refreshScheduled, 0);
         }
+    }
+
+    public void Dispose()
+    {
+        _cancellationTokenSource.Cancel();
+        _cancellationTokenSource.Dispose();
+        _refreshGate.Dispose();
     }
 }
