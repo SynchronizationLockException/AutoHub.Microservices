@@ -8,9 +8,12 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     public DbSet<SaleOrder> Sales => Set<SaleOrder>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<IdempotentRequest> IdempotentRequests => Set<IdempotentRequest>();
+    public DbSet<SagaInstance> SagaInstances => Set<SagaInstance>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<SagaInstance>().HasIndex(x => x.CorrelationId);
+        modelBuilder.Entity<SagaInstance>().HasIndex(x => new { x.Type, x.State });
         modelBuilder.Entity<SaleOrder>()
             .HasIndex(x => new { x.OwnerUsername, x.SoldAtUtc });
 

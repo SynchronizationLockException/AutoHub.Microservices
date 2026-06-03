@@ -1,7 +1,10 @@
+using BuildingBlocks.Messaging.Inbox;
+
 namespace NotificationService.Api.Models;
 
-public sealed class ProcessedMessage
+public sealed class ProcessedMessage : IProcessedMessage
 {
     public Guid Id { get; init; } = Guid.NewGuid();
-    public required string MessageId { get; init; }
+    public string MessageId { get; init; } = string.Empty;
+    public DateTime ProcessedAtUtc { get; init; } = DateTime.UtcNow;
 }

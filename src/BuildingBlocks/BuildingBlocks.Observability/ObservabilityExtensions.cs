@@ -23,6 +23,7 @@ public static class ObservabilityExtensions
                 tracing
                     .AddAspNetCoreInstrumentation()
                     .AddHttpClientInstrumentation()
+                    .AddSource("BuildingBlocks.Messaging")
                     .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint));
             })
             .WithMetrics(metrics =>
@@ -33,6 +34,7 @@ public static class ObservabilityExtensions
                     .AddRuntimeInstrumentation()
                     .AddMeter("BuildingBlocks.Hosting")
                     .AddMeter("BuildingBlocks.Authentication")
+                    .AddMeter("BuildingBlocks.Messaging")
                     .AddOtlpExporter(options => options.Endpoint = new Uri(otlpEndpoint));
             });
 

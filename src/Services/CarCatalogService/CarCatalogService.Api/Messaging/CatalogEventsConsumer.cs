@@ -1,10 +1,12 @@
 using BuildingBlocks.Contracts;
-using BuildingBlocks.Hosting;
+using BuildingBlocks.Messaging.Consumers;
+using BuildingBlocks.Messaging.Inbox;
 using CarCatalogService.Api.Data;
+using CarCatalogService.Api.Models;
+using BuildingBlocks.Hosting;
+using CarCatalogService.Api.Services;
 using Microsoft.EntityFrameworkCore;
-using RabbitMQ.Client;
-using RabbitMQ.Client.Events;
-using System.Text;
+using System.Net.Http.Json;
 using System.Text.Json;
 
 namespace CarCatalogService.Api.Messaging;
@@ -12,215 +14,262 @@ namespace CarCatalogService.Api.Messaging;
 public sealed class CatalogEventsConsumer(
     IServiceProvider services,
     IConfiguration configuration,
-    ILogger<CatalogEventsConsumer> logger) : BackgroundService
+    ILogger<CatalogEventsConsumer> logger)
+    : RabbitMqConsumerHost(
+        services,
+        configuration,
+        logger,
+        new RabbitMqConsumerOptions
+        {
+            QueueName = "catalog.availability",
+            RetryQueueName = "catalog.availability.retry",
+            DeadQueueName = "catalog.availability.dead",
+            RetryRoutingKey = "catalog.availability",
+            RoutingKeys =
+            [
+                "rental.created",
+                "sale.created",
+                "rental.cancelled",
+                "sale.cancelled"
+            ]
+        })
 {
-    private const string QueueName = "catalog.availability";
-    private const string RetryQueueName = "catalog.availability.retry";
-    private const string DeadQueueName = "catalog.availability.dead";
-    private const string ExchangeName = "autohub.events";
-    private const string RetryExchange = "autohub.retry";
-    private const string DeadExchange = "autohub.dead";
-    private const string RetryRoutingKey = "catalog.availability";
-
-    protected override async Task ExecuteAsync(CancellationToken stoppingToken)
+    protected override async Task<bool> ProcessMessageAsync(
+        string routingKey,
+        string messageId,
+        string payload,
+        CancellationToken cancellationToken)
     {
-        var host = configuration.GetRequiredValue("RabbitMq:Host");
-        var username = configuration.GetRequiredValue("RabbitMq:Username");
-        var password = configuration.GetRequiredValue("RabbitMq:Password");
-        var prefetchCount = configuration.GetValue<ushort?>("RabbitMq:CatalogConsumerPrefetchCount") ?? 8;
-        var maxRetryCount = configuration.GetValue<int?>("RabbitMq:CatalogConsumerMaxRetryCount") ?? 2;
-        var handlerConcurrency = configuration.GetValue<int?>("RabbitMq:CatalogConsumerConcurrency") ?? 4;
-        if (handlerConcurrency < 1)
-        {
-            throw new InvalidOperationException("RabbitMq:CatalogConsumerConcurrency must be >= 1.");
-        }
-
-        while (!stoppingToken.IsCancellationRequested)
-        {
-            try
-            {
-                var factory = new ConnectionFactory
-                {
-                    HostName = host,
-                    UserName = username,
-                    Password = password,
-                    DispatchConsumersAsync = true
-                };
-
-                using var connection = factory.CreateConnection();
-                using var channel = connection.CreateModel();
-                channel.BasicQos(0, prefetchCount, global: false);
-                channel.ExchangeDeclare(ExchangeName, ExchangeType.Topic, durable: true);
-                channel.ExchangeDeclare(RetryExchange, ExchangeType.Direct, durable: true);
-                channel.ExchangeDeclare(DeadExchange, ExchangeType.Direct, durable: true);
-
-                channel.QueueDeclare(QueueName, durable: true, exclusive: false, autoDelete: false, arguments: null);
-                channel.QueueDeclare(RetryQueueName, durable: true, exclusive: false, autoDelete: false, arguments: new Dictionary<string, object>
-                {
-                    ["x-message-ttl"] = 10000,
-                    ["x-dead-letter-exchange"] = ExchangeName
-                });
-                channel.QueueDeclare(DeadQueueName, durable: true, exclusive: false, autoDelete: false, arguments: null);
-
-                channel.QueueBind(QueueName, ExchangeName, "rental.created");
-                channel.QueueBind(QueueName, ExchangeName, "sale.created");
-                channel.QueueBind(RetryQueueName, RetryExchange, RetryRoutingKey);
-                channel.QueueBind(DeadQueueName, DeadExchange, RetryRoutingKey);
-
-                var channelLock = new object();
-                var gate = new SemaphoreSlim(handlerConcurrency, handlerConcurrency);
-                var consumer = new AsyncEventingBasicConsumer(channel);
-                consumer.Received += async (_, ea) =>
-                {
-                    await gate.WaitAsync(stoppingToken);
-                    try
-                    {
-                        await ProcessMessageAsync(channel, channelLock, ea, maxRetryCount, stoppingToken);
-                    }
-                    catch (OperationCanceledException)
-                    {
-                        lock (channelLock)
-                        {
-                            channel.BasicNack(ea.DeliveryTag, false, requeue: true);
-                        }
-                    }
-                    catch (Exception ex)
-                    {
-                        logger.LogError(ex, "Unhandled error in catalog consumer handler.");
-                        lock (channelLock)
-                        {
-                            channel.BasicNack(ea.DeliveryTag, false, requeue: true);
-                        }
-                    }
-                    finally
-                    {
-                        gate.Release();
-                    }
-                };
-
-                channel.BasicConsume(QueueName, autoAck: false, consumer: consumer);
-                await Task.Delay(Timeout.Infinite, stoppingToken);
-            }
-            catch (OperationCanceledException)
-            {
-                break;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Catalog consumer connection/loop failed; reconnecting after delay.");
-                await Task.Delay(TimeSpan.FromSeconds(5), stoppingToken);
-            }
-        }
-    }
-
-    private async Task ProcessMessageAsync(
-        IModel channel,
-        object channelLock,
-        BasicDeliverEventArgs ea,
-        int maxRetryCount,
-        CancellationToken stoppingToken)
-    {
-        var messageId = ea.BasicProperties.MessageId ?? $"{ea.RoutingKey}:{Convert.ToHexString(ea.Body.ToArray())}";
-        using var scope = services.CreateScope();
+        using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<CarCatalogDbContext>();
+        var reservations = scope.ServiceProvider.GetRequiredService<ReservationService>();
+        var completionNotifier = scope.ServiceProvider.GetRequiredService<SagaCompletionNotifier>();
 
-        var alreadyProcessed = await db.ProcessedMessages.AnyAsync(x => x.MessageId == messageId, stoppingToken);
+        var alreadyProcessed = await db.ProcessedMessages.AnyAsync(
+            x => x.MessageId == messageId,
+            cancellationToken);
         if (alreadyProcessed)
         {
-            lock (channelLock)
-            {
-                channel.BasicAck(ea.DeliveryTag, false);
-            }
-            return;
+            return false;
         }
 
-        var payload = Encoding.UTF8.GetString(ea.Body.ToArray());
-        var carId = ea.RoutingKey switch
+        return routingKey switch
         {
-            "rental.created" => JsonSerializer.Deserialize<RentalCreatedEvent>(payload)?.CarId,
-            "sale.created" => JsonSerializer.Deserialize<SaleCreatedEvent>(payload)?.CarId,
-            _ => null
+            "rental.created" => await HandleRentalCreatedAsync(
+                db, reservations, completionNotifier, messageId, payload, cancellationToken),
+            "sale.created" => await HandleSaleCreatedAsync(
+                db, reservations, completionNotifier, messageId, payload, cancellationToken),
+            "rental.cancelled" => await HandleRentalCancelledAsync(
+                db, reservations, messageId, payload, cancellationToken),
+            "sale.cancelled" => await HandleSaleCancelledAsync(
+                db, reservations, messageId, payload, cancellationToken),
+            _ => false
         };
+    }
 
-        if (carId is null)
+    private static async Task<bool> HandleRentalCreatedAsync(
+        CarCatalogDbContext db,
+        ReservationService reservations,
+        SagaCompletionNotifier completionNotifier,
+        string messageId,
+        string payload,
+        CancellationToken ct)
+    {
+        var evt = JsonSerializer.Deserialize<RentalCreatedEvent>(payload);
+        if (evt is null)
         {
-            lock (channelLock)
+            return false;
+        }
+
+        return await InboxProcessor.TryProcessAsync<CarCatalogDbContext, ProcessedMessage>(
+            db,
+            messageId,
+            async token =>
             {
-                channel.BasicAck(ea.DeliveryTag, false);
-            }
+                if (evt.ReservationId != Guid.Empty)
+                {
+                    var (confirmed, error) = await reservations.TryConfirmAsync(evt.CarId, evt.ReservationId, token);
+                    if (confirmed is null)
+                    {
+                        throw new InvalidOperationException(error ?? "Reservation confirm failed.");
+                    }
+
+                    var holder = await db.Reservations.AsNoTracking()
+                        .Where(x => x.Id == evt.ReservationId)
+                        .Select(x => x.HolderReference)
+                        .FirstAsync(token);
+                    await completionNotifier.NotifyRentalCompletedAsync(evt.RentalId, holder, token);
+                    return;
+                }
+
+                var car = await db.Cars.FirstOrDefaultAsync(x => x.Id == evt.CarId, token);
+                if (car is not null)
+                {
+                    car.IsAvailableForRent = false;
+                    car.IsAvailableForSale = false;
+                }
+            },
+            () => new ProcessedMessage { MessageId = messageId },
+            ct);
+    }
+
+    private static async Task<bool> HandleSaleCreatedAsync(
+        CarCatalogDbContext db,
+        ReservationService reservations,
+        SagaCompletionNotifier completionNotifier,
+        string messageId,
+        string payload,
+        CancellationToken ct)
+    {
+        var evt = JsonSerializer.Deserialize<SaleCreatedEvent>(payload);
+        if (evt is null)
+        {
+            return false;
+        }
+
+        return await InboxProcessor.TryProcessAsync<CarCatalogDbContext, ProcessedMessage>(
+            db,
+            messageId,
+            async token =>
+            {
+                if (evt.ReservationId != Guid.Empty)
+                {
+                    var (confirmed, error) = await reservations.TryConfirmAsync(evt.CarId, evt.ReservationId, token);
+                    if (confirmed is null)
+                    {
+                        throw new InvalidOperationException(error ?? "Reservation confirm failed.");
+                    }
+
+                    var holder = await db.Reservations.AsNoTracking()
+                        .Where(x => x.Id == evt.ReservationId)
+                        .Select(x => x.HolderReference)
+                        .FirstAsync(token);
+                    await completionNotifier.NotifySaleCompletedAsync(evt.SaleId, holder, token);
+                    return;
+                }
+
+                var car = await db.Cars.FirstOrDefaultAsync(x => x.Id == evt.CarId, token);
+                if (car is not null)
+                {
+                    car.IsAvailableForRent = false;
+                    car.IsAvailableForSale = false;
+                }
+            },
+            () => new ProcessedMessage { MessageId = messageId },
+            ct);
+    }
+
+    private static async Task<bool> HandleRentalCancelledAsync(
+        CarCatalogDbContext db,
+        ReservationService reservations,
+        string messageId,
+        string payload,
+        CancellationToken ct)
+    {
+        var evt = JsonSerializer.Deserialize<RentalCancelledEvent>(payload);
+        if (evt is null)
+        {
+            return false;
+        }
+
+        return await InboxProcessor.TryProcessAsync<CarCatalogDbContext, ProcessedMessage>(
+            db,
+            messageId,
+            async token =>
+            {
+                if (evt.ReservationId != Guid.Empty)
+                {
+                    await reservations.TryReleaseAsync(evt.CarId, evt.ReservationId, token);
+                }
+
+                await reservations.ReleaseAvailabilityForCarAsync(evt.CarId, token);
+            },
+            () => new ProcessedMessage { MessageId = messageId },
+            ct);
+    }
+
+    private static async Task<bool> HandleSaleCancelledAsync(
+        CarCatalogDbContext db,
+        ReservationService reservations,
+        string messageId,
+        string payload,
+        CancellationToken ct)
+    {
+        var evt = JsonSerializer.Deserialize<SaleCancelledEvent>(payload);
+        if (evt is null)
+        {
+            return false;
+        }
+
+        return await InboxProcessor.TryProcessAsync<CarCatalogDbContext, ProcessedMessage>(
+            db,
+            messageId,
+            async token =>
+            {
+                if (evt.ReservationId != Guid.Empty)
+                {
+                    await reservations.TryReleaseAsync(evt.CarId, evt.ReservationId, token);
+                }
+
+                await reservations.ReleaseAvailabilityForCarAsync(evt.CarId, token);
+            },
+            () => new ProcessedMessage { MessageId = messageId },
+            ct);
+    }
+}
+
+public sealed class SagaCompletionNotifier(
+    IHttpClientFactory httpClientFactory,
+    IConfiguration configuration,
+    ILogger<SagaCompletionNotifier> logger)
+{
+    public async Task NotifyRentalCompletedAsync(Guid rentalId, string holderReference, CancellationToken ct)
+    {
+        var baseUrl = configuration["ExternalServices:RentalApiBaseUrl"];
+        var secret = configuration["InternalApi:Secret"];
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(secret))
+        {
             return;
         }
 
+        var client = httpClientFactory.CreateClient("rental-internal");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{baseUrl.TrimEnd('/')}/api/internal/sagas/complete");
+        request.Headers.Add(InternalApiExtensions.SecretHeaderName, secret);
+        request.Content = JsonContent.Create(new { holderReference, rentalId, kind = "rental" });
         try
         {
-            var car = await db.Cars.FirstOrDefaultAsync(x => x.Id == carId.Value, stoppingToken);
-            if (car is not null)
-            {
-                car.IsAvailableForRent = false;
-                car.IsAvailableForSale = false;
-            }
-
-            db.ProcessedMessages.Add(new Models.ProcessedMessage { MessageId = messageId });
-            await db.SaveChangesAsync(stoppingToken);
-
-            lock (channelLock)
-            {
-                channel.BasicAck(ea.DeliveryTag, false);
-            }
+            await client.SendAsync(request, ct);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex)
         {
-            var retryCount = TryGetRetryCount(ea.BasicProperties.Headers);
-            var props = channel.CreateBasicProperties();
-            props.Persistent = true;
-            props.MessageId = ea.BasicProperties.MessageId;
-            props.Headers = new Dictionary<string, object>
-            {
-                ["x-retry"] = Encoding.UTF8.GetBytes((retryCount + 1).ToString())
-            };
-            var targetExchange = retryCount >= maxRetryCount ? DeadExchange : RetryExchange;
-
-            try
-            {
-                lock (channelLock)
-                {
-                    channel.BasicPublish(targetExchange, RetryRoutingKey, props, ea.Body);
-                    channel.BasicAck(ea.DeliveryTag, false);
-                }
-            }
-            catch (Exception publishEx)
-            {
-                logger.LogWarning(publishEx, "Failed to republish failed catalog message; nacking for requeue.");
-                lock (channelLock)
-                {
-                    channel.BasicNack(ea.DeliveryTag, false, requeue: true);
-                }
-            }
+            logger.LogWarning(ex, "Failed to notify rental saga completion for {RentalId}.", rentalId);
         }
     }
 
-    private static int TryGetRetryCount(IDictionary<string, object>? headers)
+    public async Task NotifySaleCompletedAsync(Guid saleId, string holderReference, CancellationToken ct)
     {
-        if (headers is null || !headers.TryGetValue("x-retry", out var raw))
+        var baseUrl = configuration["ExternalServices:SalesApiBaseUrl"];
+        var secret = configuration["InternalApi:Secret"];
+        if (string.IsNullOrWhiteSpace(baseUrl) || string.IsNullOrWhiteSpace(secret))
         {
-            return 0;
+            return;
         }
 
-        if (raw is byte[] bytes && int.TryParse(Encoding.UTF8.GetString(bytes), out var parsedBytes))
+        var client = httpClientFactory.CreateClient("sales-internal");
+        using var request = new HttpRequestMessage(
+            HttpMethod.Post,
+            $"{baseUrl.TrimEnd('/')}/api/internal/sagas/complete");
+        request.Headers.Add(InternalApiExtensions.SecretHeaderName, secret);
+        request.Content = JsonContent.Create(new { holderReference, saleId, kind = "sale" });
+        try
         {
-            return parsedBytes;
+            await client.SendAsync(request, ct);
         }
-
-        if (raw is int parsedInt)
+        catch (Exception ex)
         {
-            return parsedInt;
+            logger.LogWarning(ex, "Failed to notify sales saga completion for {SaleId}.", saleId);
         }
-
-        if (raw is string text && int.TryParse(text, out var parsedString))
-        {
-            return parsedString;
-        }
-
-        return 0;
     }
 }

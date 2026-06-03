@@ -5,6 +5,8 @@
     <Project Path="src/BuildingBlocks/BuildingBlocks.Hosting/BuildingBlocks.Hosting.csproj" />
     <Project Path="src/BuildingBlocks/BuildingBlocks.Contracts/BuildingBlocks.Contracts.csproj" />
     <Project Path="src/BuildingBlocks/BuildingBlocks.Observability/BuildingBlocks.Observability.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Saga/BuildingBlocks.Saga.csproj" />
+    <Project Path="src/BuildingBlocks/BuildingBlocks.Messaging/BuildingBlocks.Messaging.csproj" />
   </Folder>
   <Folder Name="/src/Gateway/">
     <Project Path="src/Gateway/ApiGateway/ApiGateway.csproj" />

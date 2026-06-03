@@ -4,6 +4,7 @@ using BuildingBlocks.Observability;
 using Microsoft.Extensions.Http.Resilience;
 using RentalService.Api.Data;
 using RentalService.Api.Messaging;
+using RentalService.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace RentalService.Api.Composition;
@@ -19,7 +20,10 @@ public static class ServiceCollectionExtensions
             .AddAutoHubRabbitMqReady(configuration);
         services.AddDbContext<RentalDbContext>(options =>
             options.UseNpgsql(configuration.GetRequiredConnectionString("RentalDb")));
+        services.AddScoped<CatalogReservationClient>();
+        services.AddScoped<RentalSagaService>();
         services.AddHostedService<RentalOutboxPublisher>();
+        services.AddHostedService<SagaTimeoutWorker>();
         services.AddHttpClient("catalog", client =>
             {
                 client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:CatalogApiBaseUrl"));

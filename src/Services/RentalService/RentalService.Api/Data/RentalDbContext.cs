@@ -8,9 +8,15 @@ public sealed class RentalDbContext(DbContextOptions<RentalDbContext> options) :
     public DbSet<RentalContract> Rentals => Set<RentalContract>();
     public DbSet<OutboxMessage> OutboxMessages => Set<OutboxMessage>();
     public DbSet<IdempotentRequest> IdempotentRequests => Set<IdempotentRequest>();
+    public DbSet<SagaInstance> SagaInstances => Set<SagaInstance>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<SagaInstance>()
+            .HasIndex(x => x.CorrelationId);
+
+        modelBuilder.Entity<SagaInstance>()
+            .HasIndex(x => new { x.Type, x.State });
         modelBuilder.Entity<RentalContract>()
             .HasIndex(x => new { x.OwnerUsername, x.CreatedAtUtc });
 

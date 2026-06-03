@@ -2,7 +2,7 @@ using BuildingBlocks.Hosting.Persistence;
 
 namespace RentalService.Api.Models;
 
-public sealed class OutboxMessage : IOutboxMessageRecord
+public sealed class OutboxMessage : IOutboxTypedMessage
 {
     public Guid Id { get; init; } = Guid.NewGuid();
     public string Type { get; init; } = string.Empty;

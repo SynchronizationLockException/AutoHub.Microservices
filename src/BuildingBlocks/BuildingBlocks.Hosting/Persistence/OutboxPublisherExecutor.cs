@@ -16,6 +16,11 @@ public interface IOutboxMessageRecord
     DateTime? ProcessedOnUtc { get; set; }
 }
 
+public interface IOutboxTypedMessage : IOutboxMessageRecord
+{
+    string Type { get; init; }
+}
+
 public static class OutboxPublisherExecutor
 {
     private static readonly Meter Meter = new("BuildingBlocks.Hosting");
@@ -34,10 +39,9 @@ public static class OutboxPublisherExecutor
         IServiceProvider services,
         IConfiguration configuration,
         ILogger logger,
-        string routingKey,
         CancellationToken stoppingToken)
         where TDbContext : DbContext
-        where TOutboxMessage : class, IOutboxMessageRecord
+        where TOutboxMessage : class, IOutboxTypedMessage
     {
         var maxBatchSize = Math.Clamp(configuration.GetValue("Outbox:MaxBatchSize", 100), 20, 500);
         var idleDelay = TimeSpan.FromMilliseconds(Math.Clamp(configuration.GetValue("Outbox:IdleDelayMs", 2000), 200, 5000));
@@ -95,6 +99,7 @@ public static class OutboxPublisherExecutor
                             var properties = channel.CreateBasicProperties();
                             properties.Persistent = true;
                             properties.MessageId = message.Id.ToString();
+                            var routingKey = OutboxRouting.Map(message.Type);
                             channel.BasicPublish("autohub.events", routingKey, properties, body);
                             message.ProcessedOnUtc = DateTime.UtcNow;
                             PublishedMessages.Add(1);

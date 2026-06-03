@@ -1,0 +1,53 @@
+{{- range $name, $svc := .Values.services }}
+{{- if ne $name "apiGateway" }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: autohub-{{ $name }}
+spec:
+  replicas: {{ $svc.replicas }}
+  selector:
+    matchLabels:
+      app: autohub-{{ $name }}
+  template:
+    metadata:
+      labels:
+        app: autohub-{{ $name }}
+    spec:
+      initContainers:
+        - name: migrate
+          image: {{ $.Values.imageRegistry }}/{{ $name }}:{{ $.Values.imageTag }}
+          args: ["--migrate"]
+          envFrom:
+            - secretRef:
+                name: autohub-secrets
+      containers:
+        - name: {{ $name }}
+          image: {{ $.Values.imageRegistry }}/{{ $name }}:{{ $.Values.imageTag }}
+          ports:
+            - containerPort: 8080
+          env:
+            - name: ASPNETCORE_URLS
+              value: http://+:8080
+            - name: Observability__OtlpEndpoint
+              value: {{ $.Values.observability.otlpEndpoint }}
+            - name: InternalApi__Secret
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: internalApiSecret
+          readinessProbe:
+            httpGet:
+              path: /health/ready
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health/live
+              port: 8080
+            initialDelaySeconds: 15
+            periodSeconds: 20
+{{- end }}
+{{- end }}

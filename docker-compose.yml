@@ -113,6 +113,28 @@ services:
       - jaeger
     ports:
       - "1888:1888"
+      - "8889:8889"
+
+  prometheus:
+    image: prom/prometheus:v3.2.1
+    volumes:
+      - ./deploy/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    ports:
+      - "9090:9090"
+    depends_on:
+      - otel-collector
+
+  grafana:
+    image: grafana/grafana:11.5.2
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+    volumes:
+      - ./deploy/grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - prometheus
 
   auth-migrator:
     build:
@@ -224,6 +246,9 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+      InternalApi__Secret: ${INTERNAL_API_SECRET:-dev-internal-secret}
+      ExternalServices__RentalApiBaseUrl: http://rental-service:8080
+      ExternalServices__SalesApiBaseUrl: http://sales-service:8080
     depends_on:
       postgres-catalog:
         condition: service_healthy
@@ -257,6 +282,7 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+      InternalApi__Secret: ${INTERNAL_API_SECRET:-dev-internal-secret}
     depends_on:
       postgres-rental:
         condition: service_healthy
@@ -290,6 +316,7 @@ services:
       RabbitMq__Host: rabbitmq
       RabbitMq__Username: ${RABBITMQ_DEFAULT_USER}
       RabbitMq__Password: ${RABBITMQ_DEFAULT_PASS}
+      InternalApi__Secret: ${INTERNAL_API_SECRET:-dev-internal-secret}
     depends_on:
       postgres-sales:
         condition: service_healthy

@@ -15,7 +15,6 @@ public sealed class SalesOutboxPublisher(
             services,
             configuration,
             logger,
-            routingKey: "sale.created",
             stoppingToken);
     }
 }

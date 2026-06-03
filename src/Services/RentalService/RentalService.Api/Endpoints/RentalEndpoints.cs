@@ -1,11 +1,10 @@
-using BuildingBlocks.Contracts;
+using BuildingBlocks.Hosting;
 using BuildingBlocks.Hosting.Persistence;
 using Microsoft.EntityFrameworkCore;
 using RentalService.Api.Data;
 using RentalService.Api.Models;
-using System.Net.Http.Json;
+using RentalService.Api.Services;
 using System.Security.Claims;
-using System.Text.Json;
 
 namespace RentalService.Api.Endpoints;
 
@@ -68,7 +67,7 @@ public static class RentalEndpoints
     private static async Task<IResult> CreateRentalWithIdempotencyAsync(
         HttpContext httpContext,
         CreateRentalRequest request,
-        IHttpClientFactory factory,
+        RentalSagaService sagaService,
         RentalDbContext db,
         ClaimsPrincipal principal,
         CancellationToken ct)
@@ -82,14 +81,14 @@ public static class RentalEndpoints
                 KeyHash = keyHash,
                 Path = path
             },
-            action: () => CreateRentalInternalAsync(request, factory, db, principal, ct),
+            action: () => CreateRentalInternalAsync(httpContext, request, sagaService, principal, ct),
             ct);
     }
 
     private static async Task<IResult> CreateRentalInternalAsync(
+        HttpContext httpContext,
         CreateRentalRequest request,
-        IHttpClientFactory factory,
-        RentalDbContext db,
+        RentalSagaService sagaService,
         ClaimsPrincipal principal,
         CancellationToken ct)
     {
@@ -103,22 +102,20 @@ public static class RentalEndpoints
             return ownerError!;
         }
 
-        var catalogClient = factory.CreateClient("catalog");
-        var car = await catalogClient.GetFromJsonAsync<CatalogCar>($"/api/cars/{request.CarId}", ct);
-        if (car is null || !car.IsAvailableForRent)
+        var correlationId = httpContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N");
+        var bearer = httpContext.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase);
+        var (rental, error) = await sagaService.StartCreateRentalAsync(
+            request,
+            ownerUsername,
+            correlationId,
+            string.IsNullOrWhiteSpace(bearer) ? null : bearer,
+            ct);
+        if (error is not null)
         {
-            return Results.BadRequest("Car is not available for rent.");
+            return error;
         }
 
-        var rental = request.ToRental(car.PricePerDay, ownerUsername);
-        db.Rentals.Add(rental);
-        db.OutboxMessages.Add(new OutboxMessage
-        {
-            Type = "RentalCreated",
-            Payload = JsonSerializer.Serialize(new RentalCreatedEvent(rental.CarId, rental.Id))
-        });
-        await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/rentals/{rental.Id}", rental);
+        return Results.Created($"/api/rentals/{rental!.Id}", rental);
     }
 
     private static bool TryGetOwnerScope(

@@ -4,6 +4,7 @@ using BuildingBlocks.Observability;
 using Microsoft.Extensions.Http.Resilience;
 using SalesService.Api.Data;
 using SalesService.Api.Messaging;
+using SalesService.Api.Services;
 using Microsoft.EntityFrameworkCore;
 
 namespace SalesService.Api.Composition;
@@ -19,22 +20,16 @@ public static class ServiceCollectionExtensions
             .AddAutoHubRabbitMqReady(configuration);
         services.AddDbContext<SalesDbContext>(options =>
             options.UseNpgsql(configuration.GetRequiredConnectionString("SalesDb")));
+        services.AddScoped<CatalogReservationClient>();
+        services.AddScoped<SalesSagaService>();
         services.AddHostedService<SalesOutboxPublisher>();
+        services.AddHostedService<SagaTimeoutWorker>();
         services.AddHttpClient("catalog", client =>
             {
                 client.BaseAddress = new Uri(configuration.GetRequiredValue("ExternalServices:CatalogApiBaseUrl"));
                 client.Timeout = TimeSpan.FromSeconds(10);
             })
-            .AddStandardResilienceHandler(options =>
-            {
-                options.TotalRequestTimeout.Timeout = TimeSpan.FromSeconds(12);
-                options.AttemptTimeout.Timeout = TimeSpan.FromSeconds(4);
-                options.Retry.MaxRetryAttempts = 2;
-                options.CircuitBreaker.SamplingDuration = TimeSpan.FromSeconds(20);
-                options.CircuitBreaker.FailureRatio = 0.5;
-                options.CircuitBreaker.MinimumThroughput = 10;
-                options.CircuitBreaker.BreakDuration = TimeSpan.FromSeconds(15);
-            });
+            .AddStandardResilienceHandler();
         services.AddOpenTelemetryObservability(configuration, "sales-service");
         services.AddAutoHubJwtBearer(configuration);
         services.AddAuthorization();

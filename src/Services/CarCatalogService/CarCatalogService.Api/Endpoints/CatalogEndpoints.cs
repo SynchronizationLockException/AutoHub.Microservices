@@ -20,7 +20,7 @@ public static class CatalogEndpoints
                 return Results.BadRequest("Query params page and pageSize must be positive integers.");
             }
 
-            currentPageSize = Math.Min(currentPageSize, MaxPageSize);
+            currentPageSize = Math.Min(currentPageSize, MaxPageSize);   
             var skip = (currentPage - 1) * currentPageSize;
             var cars = await db.Cars
                 .AsNoTracking()

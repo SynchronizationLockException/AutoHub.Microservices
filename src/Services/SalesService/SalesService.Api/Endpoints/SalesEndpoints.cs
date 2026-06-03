@@ -1,11 +1,10 @@
-using BuildingBlocks.Contracts;
+using BuildingBlocks.Hosting;
 using BuildingBlocks.Hosting.Persistence;
 using Microsoft.EntityFrameworkCore;
 using SalesService.Api.Data;
 using SalesService.Api.Models;
-using System.Net.Http.Json;
+using SalesService.Api.Services;
 using System.Security.Claims;
-using System.Text.Json;
 
 namespace SalesService.Api.Endpoints;
 
@@ -68,7 +67,7 @@ public static class SalesEndpoints
     private static async Task<IResult> CreateSaleWithIdempotencyAsync(
         HttpContext httpContext,
         CreateSaleRequest request,
-        IHttpClientFactory factory,
+        SalesSagaService sagaService,
         SalesDbContext db,
         ClaimsPrincipal principal,
         CancellationToken ct)
@@ -82,14 +81,14 @@ public static class SalesEndpoints
                 KeyHash = keyHash,
                 Path = path
             },
-            action: () => CreateSaleInternalAsync(request, factory, db, principal, ct),
+            action: () => CreateSaleInternalAsync(httpContext, request, sagaService, principal, ct),
             ct);
     }
 
     private static async Task<IResult> CreateSaleInternalAsync(
+        HttpContext httpContext,
         CreateSaleRequest request,
-        IHttpClientFactory factory,
-        SalesDbContext db,
+        SalesSagaService sagaService,
         ClaimsPrincipal principal,
         CancellationToken ct)
     {
@@ -105,23 +104,20 @@ public static class SalesEndpoints
         }
 
         var ownerUsername = customerLogin.ToLowerInvariant();
-
-        var catalogClient = factory.CreateClient("catalog");
-        var car = await catalogClient.GetFromJsonAsync<CatalogCar>($"/api/cars/{request.CarId}", ct);
-        if (car is null || !car.IsAvailableForSale)
+        var correlationId = httpContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N");
+        var bearer = httpContext.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase);
+        var (sale, error) = await sagaService.StartCreateSaleAsync(
+            request,
+            ownerUsername,
+            correlationId,
+            string.IsNullOrWhiteSpace(bearer) ? null : bearer,
+            ct);
+        if (error is not null)
         {
-            return Results.BadRequest("Car is not available for sale.");
+            return error;
         }
 
-        var sale = request.ToSale(car.SalePrice, ownerUsername);
-        db.Sales.Add(sale);
-        db.OutboxMessages.Add(new OutboxMessage
-        {
-            Type = "SaleCreated",
-            Payload = JsonSerializer.Serialize(new SaleCreatedEvent(sale.CarId, sale.Id))
-        });
-        await db.SaveChangesAsync(ct);
-        return Results.Created($"/api/sales/{sale.Id}", sale);
+        return Results.Created($"/api/sales/{sale!.Id}", sale);
     }
 
     private static bool TryGetOwnerScope(

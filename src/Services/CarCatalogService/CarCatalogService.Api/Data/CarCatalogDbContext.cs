@@ -6,10 +6,21 @@ namespace CarCatalogService.Api.Data;
 public sealed class CarCatalogDbContext(DbContextOptions<CarCatalogDbContext> options) : DbContext(options)
 {
     public DbSet<Car> Cars => Set<Car>();
+    public DbSet<CarReservation> Reservations => Set<CarReservation>();
     public DbSet<ProcessedMessage> ProcessedMessages => Set<ProcessedMessage>();
 
     protected override void OnModelCreating(ModelBuilder modelBuilder)
     {
+        modelBuilder.Entity<Car>()
+            .Property(x => x.RowVersion)
+            .IsConcurrencyToken();
+
+        modelBuilder.Entity<CarReservation>()
+            .HasIndex(x => new { x.CarId, x.Status });
+
+        modelBuilder.Entity<CarReservation>()
+            .HasIndex(x => x.HolderReference);
+
         modelBuilder.Entity<ProcessedMessage>().HasIndex(x => x.MessageId).IsUnique();
     }
 }

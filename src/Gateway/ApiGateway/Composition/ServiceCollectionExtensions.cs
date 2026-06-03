@@ -1,7 +1,9 @@
 using BuildingBlocks.Authentication;
 using BuildingBlocks.Hosting;
 using BuildingBlocks.Observability;
+using Microsoft.AspNetCore.RateLimiting;
 using Microsoft.Extensions.Diagnostics.HealthChecks;
+using System.Threading.RateLimiting;
 
 namespace ApiGateway.Composition;
 
@@ -21,6 +23,16 @@ public static class ServiceCollectionExtensions
             .AddReverseProxy()
             .LoadFromConfig(configuration.GetSection("ReverseProxy"));
         services.AddOpenTelemetryObservability(configuration, "api-gateway");
+        services.AddRateLimiter(options =>
+        {
+            options.AddFixedWindowLimiter("gateway", limiter =>
+            {
+                limiter.PermitLimit = 200;
+                limiter.Window = TimeSpan.FromMinutes(1);
+                limiter.QueueLimit = 0;
+            });
+            options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
+        });
 
         return services;
     }

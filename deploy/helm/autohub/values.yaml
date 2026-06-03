@@ -1,0 +1,30 @@
+imageRegistry: ghcr.io/autohub
+imageTag: latest
+internalApiSecret: change-me-internal-secret
+
+postgres:
+  password: change-me
+
+rabbitmq:
+  user: autohub
+  password: change-me
+
+services:
+  apiGateway:
+    replicas: 1
+    port: 8080
+  carCatalog:
+    replicas: 1
+  rental:
+    replicas: 1
+  sales:
+    replicas: 1
+  payment:
+    replicas: 1
+  auth:
+    replicas: 1
+  notification:
+    replicas: 1
+
+observability:
+  otlpEndpoint: http://otel-collector:4317

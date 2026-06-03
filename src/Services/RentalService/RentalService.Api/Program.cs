@@ -5,6 +5,7 @@ using RentalService.Api.Data;
 using RentalService.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseAutoHubSerilog();
 
 builder.Services.AddRentalService(builder.Configuration);
 
@@ -23,10 +24,12 @@ if (app.Environment.IsDevelopment())
 
 await app.Services.InitializeRentalDataAsync(runMigrations: false);
 
+app.UseAutoHubCorrelationId();
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapRentalEndpoints();
+app.MapSagaInternalEndpoints();
 
 app.Run();

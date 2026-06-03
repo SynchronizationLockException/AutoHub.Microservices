@@ -5,6 +5,7 @@ using SalesService.Api.Data;
 using SalesService.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseAutoHubSerilog();
 
 builder.Services.AddSalesService(builder.Configuration);
 
@@ -23,10 +24,12 @@ if (app.Environment.IsDevelopment())
 
 await app.Services.InitializeSalesDataAsync(runMigrations: false);
 
+app.UseAutoHubCorrelationId();
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapSalesEndpoints();
+app.MapSagaInternalEndpoints();
 
 app.Run();

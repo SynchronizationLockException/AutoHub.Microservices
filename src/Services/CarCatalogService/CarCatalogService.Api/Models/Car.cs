@@ -11,4 +11,5 @@ public sealed class Car
     public decimal SalePrice { get; set; }
     public bool IsAvailableForRent { get; set; } = true;
     public bool IsAvailableForSale { get; set; } = true;
+    public uint RowVersion { get; set; }
 }

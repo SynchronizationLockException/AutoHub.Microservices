@@ -15,7 +15,6 @@ public sealed class RentalOutboxPublisher(
             services,
             configuration,
             logger,
-            routingKey: "rental.created",
             stoppingToken);
     }
 }

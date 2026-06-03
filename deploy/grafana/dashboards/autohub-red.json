@@ -1,0 +1,16 @@
+{
+  "title": "AutoHub RED",
+  "panels": [
+    {
+      "title": "HTTP request rate",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum(rate(http_server_request_duration_seconds_count[5m])) by (service_name)" }]
+    },
+    {
+      "title": "Outbox published",
+      "type": "timeseries",
+      "targets": [{ "expr": "sum(rate(outbox_messages_published_total[5m]))" }]
+    }
+  ],
+  "schemaVersion": 38
+}

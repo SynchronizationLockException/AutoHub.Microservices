@@ -15,7 +15,6 @@ public sealed class PaymentOutboxPublisher(
             services,
             configuration,
             logger,
-            routingKey: "payment.completed",
             stoppingToken);
     }
 }

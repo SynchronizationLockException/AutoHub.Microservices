@@ -22,4 +22,3 @@ public sealed record CreateRentalRequest(
     }
 }
 
-public sealed record CatalogCar(Guid Id, decimal PricePerDay, bool IsAvailableForRent);

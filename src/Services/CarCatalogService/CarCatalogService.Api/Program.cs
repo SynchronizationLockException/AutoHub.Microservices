@@ -5,6 +5,7 @@ using CarCatalogService.Api.Data;
 using CarCatalogService.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseAutoHubSerilog();
 
 builder.Services.AddCarCatalogService(builder.Configuration);
 
@@ -23,11 +24,13 @@ if (app.Environment.IsDevelopment())
 
 await app.Services.InitializeCatalogDataAsync(runMigrations: app.Environment.IsDevelopment());
 
+app.UseAutoHubCorrelationId();
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();
 app.UseAuthorization();
 
 app.MapCatalogEndpoints();
+app.MapReservationEndpoints();
 
 app.Run();
 
