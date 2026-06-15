@@ -1,3 +1,4 @@
+using ApiGateway.Health;
 using BuildingBlocks.Authentication;
 using BuildingBlocks.Hosting;
 using BuildingBlocks.Observability;
@@ -12,11 +13,19 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddApiGateway(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOpenApi();
+        services.AddAutoHubProblemDetails();
+        services.AddHttpClient("downstream-health", client =>
+        {
+            client.Timeout = TimeSpan.FromSeconds(3);
+        });
         services.AddHealthChecks()
             .AddCheck(
                 "gateway",
                 () => HealthCheckResult.Healthy(),
-                tags: [HealthCheckTags.Live, HealthCheckTags.Ready]);
+                tags: [HealthCheckTags.Live])
+            .AddCheck<DownstreamClustersHealthCheck>(
+                "downstream-clusters",
+                tags: [HealthCheckTags.Ready]);
         services.AddAutoHubJwtBearer(configuration);
         services.AddAuthorization();
         services

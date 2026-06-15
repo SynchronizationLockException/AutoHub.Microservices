@@ -1,5 +1,6 @@
-using System.Net.Http.Headers;
+using BuildingBlocks.Hosting;
 using System.Net.Http.Json;
+using Microsoft.Extensions.Configuration;
 
 namespace SalesService.Api.Services;
 
@@ -11,17 +12,16 @@ public sealed record CatalogReservationDto(
     string HolderReference,
     DateTime ExpiresAtUtc);
 
-public sealed class CatalogReservationClient(IHttpClientFactory factory)
+public sealed class CatalogReservationClient(IHttpClientFactory factory, IConfiguration configuration)
 {
     public async Task<(CatalogReservationDto? Reservation, string? Error)> ReserveSaleAsync(
         Guid carId,
         string holderReference,
-        string? bearerToken,
         CancellationToken ct)
     {
         var client = factory.CreateClient("catalog");
         using var request = new HttpRequestMessage(HttpMethod.Post, $"/api/cars/{carId}/reservations");
-        ApplyBearer(request, bearerToken);
+        configuration.ApplyInternalSecret(request);
         request.Content = JsonContent.Create(new { purpose = "Sale", holderReference, ttlMinutes = 15 });
 
         var response = await client.SendAsync(request, ct);
@@ -35,11 +35,13 @@ public sealed class CatalogReservationClient(IHttpClientFactory factory)
         return reservation is null ? (null, "Catalog reservation response was empty.") : (reservation, null);
     }
 
-    public async Task ReleaseReservationAsync(Guid carId, Guid reservationId, string? bearerToken, CancellationToken ct)
+    public async Task ReleaseReservationAsync(Guid carId, Guid reservationId, CancellationToken ct)
     {
         var client = factory.CreateClient("catalog");
-        using var request = new HttpRequestMessage(HttpMethod.Delete, $"/api/cars/{carId}/reservations/{reservationId}");
-        ApplyBearer(request, bearerToken);
+        using var request = new HttpRequestMessage(
+            HttpMethod.Delete,
+            $"/api/internal/cars/{carId}/reservations/{reservationId}");
+        configuration.ApplyInternalSecret(request);
         await client.SendAsync(request, ct);
     }
 
@@ -47,14 +49,6 @@ public sealed class CatalogReservationClient(IHttpClientFactory factory)
     {
         var client = factory.CreateClient("catalog");
         return await client.GetFromJsonAsync<CatalogCar>($"/api/cars/{carId}", ct);
-    }
-
-    private static void ApplyBearer(HttpRequestMessage request, string? bearerToken)
-    {
-        if (!string.IsNullOrWhiteSpace(bearerToken))
-        {
-            request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", bearerToken);
-        }
     }
 }
 

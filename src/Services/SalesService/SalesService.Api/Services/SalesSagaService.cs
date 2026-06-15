@@ -13,7 +13,6 @@ public sealed class SalesSagaService(SalesDbContext db, CatalogReservationClient
         CreateSaleRequest request,
         string ownerUsername,
         string correlationId,
-        string? bearerToken,
         CancellationToken ct)
     {
         var saga = new SagaInstance
@@ -25,7 +24,7 @@ public sealed class SalesSagaService(SalesDbContext db, CatalogReservationClient
         };
         db.SagaInstances.Add(saga);
 
-        var (reservation, reserveError) = await catalog.ReserveSaleAsync(request.CarId, correlationId, bearerToken, ct);
+        var (reservation, reserveError) = await catalog.ReserveSaleAsync(request.CarId, correlationId, ct);
         if (reservation is null)
         {
             saga.State = SagaStates.Failed;
@@ -38,7 +37,7 @@ public sealed class SalesSagaService(SalesDbContext db, CatalogReservationClient
         var car = await catalog.GetCarAsync(request.CarId, ct);
         if (car is null)
         {
-            await catalog.ReleaseReservationAsync(request.CarId, reservation.ReservationId, bearerToken, ct);
+            await catalog.ReleaseReservationAsync(request.CarId, reservation.ReservationId, ct);
             saga.State = SagaStates.Failed;
             await db.SaveChangesAsync(ct);
             return (null, Results.BadRequest("Car not found in catalog."));
@@ -51,13 +50,18 @@ public sealed class SalesSagaService(SalesDbContext db, CatalogReservationClient
         var outbox = new OutboxMessage
         {
             Type = "SaleCreated",
-            Payload = JsonSerializer.Serialize(new SaleCreatedEvent(sale.CarId, sale.Id, reservation.ReservationId))
+            Payload = JsonSerializer.Serialize(new SaleCreatedEvent(
+                sale.CarId,
+                sale.Id,
+                reservation.ReservationId,
+                sale.OwnerUsername))
         };
 
         db.Sales.Add(sale);
         db.OutboxMessages.Add(outbox);
 
         saga.State = SagaStates.Persisted;
+        saga.EntityId = sale.Id;
         saga.StepDataJson = JsonSerializer.Serialize(new SagaStepData
         {
             CarId = request.CarId,
@@ -101,24 +105,23 @@ public sealed class SalesSagaService(SalesDbContext db, CatalogReservationClient
             db.OutboxMessages.Add(new OutboxMessage
             {
                 Type = "SaleCancelled",
-                Payload = JsonSerializer.Serialize(new SaleCancelledEvent(carId, saleId, reservationId))
+                Payload = JsonSerializer.Serialize(new SaleCancelledEvent(
+                    carId,
+                    saleId,
+                    reservationId,
+                    sale.OwnerUsername))
             });
         }
 
-        var sagas = await db.SagaInstances.Where(x => x.Type == SagaTypes.CreateSale).ToListAsync(ct);
-        foreach (var instance in sagas)
+        var saga = await db.SagaInstances
+            .FirstOrDefaultAsync(x => x.Type == SagaTypes.CreateSale && x.EntityId == saleId, ct);
+        if (saga is not null)
         {
-            var data = JsonSerializer.Deserialize<SagaStepData>(instance.StepDataJson);
-            if (data?.SaleId != saleId)
-            {
-                continue;
-            }
-
-            instance.State = SagaStates.Failed;
-            instance.UpdatedAtUtc = DateTime.UtcNow;
+            saga.State = SagaStates.Failed;
+            saga.UpdatedAtUtc = DateTime.UtcNow;
         }
 
-        await catalog.ReleaseReservationAsync(carId, reservationId, bearerToken: null, ct);
+        await catalog.ReleaseReservationAsync(carId, reservationId, ct);
         await db.SaveChangesAsync(ct);
     }
 
@@ -130,18 +133,30 @@ public sealed class SalesSagaService(SalesDbContext db, CatalogReservationClient
                         (x.State == SagaStates.Persisted || x.State == SagaStates.Published))
             .ToListAsync(ct);
 
+        var outboxIds = candidates
+            .Select(s => JsonSerializer.Deserialize<SagaStepData>(s.StepDataJson))
+            .Where(d => d?.OutboxMessageId is Guid)
+            .Select(d => d!.OutboxMessageId!.Value)
+            .Distinct()
+            .ToList();
+
+        var outboxById = outboxIds.Count == 0
+            ? new Dictionary<Guid, OutboxMessage>()
+            : await db.OutboxMessages.AsNoTracking()
+                .Where(x => outboxIds.Contains(x.Id))
+                .ToDictionaryAsync(x => x.Id, ct);
+
         foreach (var saga in candidates)
         {
             var data = JsonSerializer.Deserialize<SagaStepData>(saga.StepDataJson) ?? new SagaStepData();
-            if (data.OutboxMessageId is Guid outboxId)
+            if (data.OutboxMessageId is Guid outboxId &&
+                outboxById.TryGetValue(outboxId, out var outbox) &&
+                outbox.ProcessedOnUtc is not null &&
+                saga.State == SagaStates.Persisted)
             {
-                var outbox = await db.OutboxMessages.AsNoTracking().FirstOrDefaultAsync(x => x.Id == outboxId, ct);
-                if (outbox?.ProcessedOnUtc is not null && saga.State == SagaStates.Persisted)
-                {
-                    saga.State = SagaStates.Published;
-                    saga.UpdatedAtUtc = now;
-                    continue;
-                }
+                saga.State = SagaStates.Published;
+                saga.UpdatedAtUtc = now;
+                continue;
             }
 
             if (saga.State == SagaStates.Published && now - saga.UpdatedAtUtc > publishedTimeout)

@@ -14,6 +14,7 @@ public sealed class SalesDbContext(DbContextOptions<SalesDbContext> options) : D
     {
         modelBuilder.Entity<SagaInstance>().HasIndex(x => x.CorrelationId);
         modelBuilder.Entity<SagaInstance>().HasIndex(x => new { x.Type, x.State });
+        modelBuilder.Entity<SagaInstance>().HasIndex(x => new { x.Type, x.EntityId });
         modelBuilder.Entity<SaleOrder>()
             .HasIndex(x => new { x.OwnerUsername, x.SoldAtUtc });
 

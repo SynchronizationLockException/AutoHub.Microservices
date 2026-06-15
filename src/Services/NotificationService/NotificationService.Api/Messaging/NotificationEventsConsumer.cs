@@ -4,6 +4,7 @@ using BuildingBlocks.Messaging.Inbox;
 using Microsoft.EntityFrameworkCore;
 using NotificationService.Api.Data;
 using NotificationService.Api.Models;
+using NotificationService.Api.Services;
 using System.Text.Json;
 
 namespace NotificationService.Api.Messaging;
@@ -40,35 +41,73 @@ public sealed class NotificationEventsConsumer(
     {
         using var scope = Services.CreateScope();
         var db = scope.ServiceProvider.GetRequiredService<NotificationDbContext>();
-        var log = scope.ServiceProvider.GetRequiredService<ILogger<NotificationEventsConsumer>>();
+        var sender = scope.ServiceProvider.GetRequiredService<INotificationSender>();
 
         return await InboxProcessor.TryProcessAsync<NotificationDbContext, ProcessedMessage>(
             db,
             messageId,
             async token =>
             {
-                var text = routingKey switch
-                {
-                    "rental.created" => $"Rental created: {payload}",
-                    "sale.created" => $"Sale created: {payload}",
-                    "payment.completed" => FormatPayment(payload),
-                    "rental.cancelled" => $"Rental cancelled: {payload}",
-                    "sale.cancelled" => $"Sale cancelled: {payload}",
-                    _ => $"Event {routingKey}: {payload}"
-                };
+                var (text, ownerUsername) = FormatMessage(routingKey, payload);
+                var result = await sender.SendAsync(routingKey, text, ownerUsername, token);
 
-                log.LogInformation("Notification: {Text}", text);
-                await Task.CompletedTask;
+                db.NotificationDeliveries.Add(new NotificationDelivery
+                {
+                    RoutingKey = routingKey,
+                    PayloadJson = payload,
+                    OwnerUsername = ownerUsername,
+                    Channel = result.Channel,
+                    Status = result.Success ? NotificationStatuses.Delivered : NotificationStatuses.Failed,
+                    Detail = result.Detail,
+                    DeliveredOnUtc = DateTime.UtcNow
+                });
+                await db.SaveChangesAsync(token);
             },
             () => new ProcessedMessage { MessageId = messageId },
             cancellationToken);
     }
 
-    private static string FormatPayment(string payload)
+    private static (string Text, string OwnerUsername) FormatMessage(string routingKey, string payload)
     {
-        var evt = JsonSerializer.Deserialize<PaymentCompletedEvent>(payload);
-        return evt is null
-            ? $"Payment event: {payload}"
-            : $"Payment completed {evt.PaymentId} amount {evt.Amount} {evt.Currency}";
+        switch (routingKey)
+        {
+            case "rental.created":
+            {
+                var evt = JsonSerializer.Deserialize<RentalCreatedEvent>(payload);
+                return evt is null
+                    ? ($"Rental created: {payload}", "unknown")
+                    : ($"Rental {evt.RentalId} created for car {evt.CarId}", evt.OwnerUsername);
+            }
+            case "sale.created":
+            {
+                var evt = JsonSerializer.Deserialize<SaleCreatedEvent>(payload);
+                return evt is null
+                    ? ($"Sale created: {payload}", "unknown")
+                    : ($"Sale {evt.SaleId} created for car {evt.CarId}", evt.OwnerUsername);
+            }
+            case "payment.completed":
+            {
+                var evt = JsonSerializer.Deserialize<PaymentCompletedEvent>(payload);
+                return evt is null
+                    ? ($"Payment event: {payload}", "unknown")
+                    : ($"Payment {evt.PaymentId} completed amount {evt.Amount} {evt.Currency}", evt.OwnerUsername);
+            }
+            case "rental.cancelled":
+            {
+                var evt = JsonSerializer.Deserialize<RentalCancelledEvent>(payload);
+                return evt is null
+                    ? ($"Rental cancelled: {payload}", "unknown")
+                    : ($"Rental {evt.RentalId} cancelled", evt.OwnerUsername);
+            }
+            case "sale.cancelled":
+            {
+                var evt = JsonSerializer.Deserialize<SaleCancelledEvent>(payload);
+                return evt is null
+                    ? ($"Sale cancelled: {payload}", "unknown")
+                    : ($"Sale {evt.SaleId} cancelled", evt.OwnerUsername);
+            }
+            default:
+                return ($"Event {routingKey}: {payload}", "unknown");
+        }
     }
 }

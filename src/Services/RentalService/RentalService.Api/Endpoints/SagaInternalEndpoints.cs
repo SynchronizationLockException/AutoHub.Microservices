@@ -49,7 +49,6 @@ public static class SagaInternalEndpoints
                 request.EntityId,
                 request.ReservationId,
                 request.CarId,
-                bearerToken: null,
                 ct);
             return Results.Ok();
         });

@@ -12,6 +12,7 @@ public sealed class NotificationDbContext(DbContextOptions<NotificationDbContext
     {
         modelBuilder.Entity<ProcessedMessage>().HasIndex(x => x.MessageId).IsUnique();
         modelBuilder.Entity<NotificationDelivery>().HasIndex(x => x.DeliveredOnUtc);
+        modelBuilder.Entity<NotificationDelivery>().HasIndex(x => x.OwnerUsername);
     }
 }
 

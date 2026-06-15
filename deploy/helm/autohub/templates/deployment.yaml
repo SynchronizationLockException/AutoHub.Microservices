@@ -1,5 +1,4 @@
 {{- range $name, $svc := .Values.services }}
-{{- if ne $name "apiGateway" }}
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -15,39 +14,111 @@ spec:
       labels:
         app: autohub-{{ $name }}
     spec:
+      {{- if $svc.database }}
       initContainers:
         - name: migrate
-          image: {{ $.Values.imageRegistry }}/{{ $name }}:{{ $.Values.imageTag }}
+          image: {{ $.Values.imageRegistry }}/{{ $svc.image }}:{{ $.Values.imageTag }}
           args: ["--migrate"]
           envFrom:
+            - configMapRef:
+                name: autohub-config
             - secretRef:
                 name: autohub-secrets
+          env:
+            - name: ConnectionStrings__{{ $svc.connectionStringKey }}
+              value: Host={{ $.Values.postgres.host }};Port={{ $.Values.postgres.port }};Database={{ $svc.database }};Username={{ $.Values.postgres.user }};Password=$(POSTGRES_PASSWORD)
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: postgresPassword
+            - name: RabbitMq__User
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: rabbitmqUser
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: rabbitmqPassword
+      {{- end }}
       containers:
         - name: {{ $name }}
-          image: {{ $.Values.imageRegistry }}/{{ $name }}:{{ $.Values.imageTag }}
+          image: {{ $.Values.imageRegistry }}/{{ $svc.image }}:{{ $.Values.imageTag }}
           ports:
-            - containerPort: 8080
+            - containerPort: {{ $svc.port }}
+          envFrom:
+            - configMapRef:
+                name: autohub-config
           env:
             - name: ASPNETCORE_URLS
-              value: http://+:8080
-            - name: Observability__OtlpEndpoint
-              value: {{ $.Values.observability.otlpEndpoint }}
+              value: http://+:{{ $svc.port }}
             - name: InternalApi__Secret
               valueFrom:
                 secretKeyRef:
                   name: autohub-secrets
                   key: internalApiSecret
+            - name: Observability__OtlpEndpoint
+              value: {{ $.Values.observability.otlpEndpoint | quote }}
+            {{- if $svc.database }}
+            - name: ConnectionStrings__{{ $svc.connectionStringKey }}
+              value: Host={{ $.Values.postgres.host }};Port={{ $.Values.postgres.port }};Database={{ $svc.database }};Username={{ $.Values.postgres.user }};Password=$(POSTGRES_PASSWORD)
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: postgresPassword
+            - name: RabbitMq__User
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: rabbitmqUser
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: rabbitmqPassword
+            {{- end }}
+            {{- if eq $name "auth" }}
+            - name: Jwt__PrivateKeyPem
+              valueFrom:
+                secretKeyRef:
+                  name: autohub-secrets
+                  key: jwtPrivateKeyPem
+            {{- end }}
+            {{- if eq $name "rental" }}
+            - name: ExternalServices__CatalogApiBaseUrl
+              value: {{ $.Values.externalServices.catalogApiBaseUrl | quote }}
+            {{- end }}
+            {{- if eq $name "sales" }}
+            - name: ExternalServices__CatalogApiBaseUrl
+              value: {{ $.Values.externalServices.catalogApiBaseUrl | quote }}
+            {{- end }}
+            {{- if eq $name "payment" }}
+            - name: ExternalServices__SalesApiBaseUrl
+              value: {{ $.Values.externalServices.salesApiBaseUrl | quote }}
+            - name: ExternalServices__RentalApiBaseUrl
+              value: {{ $.Values.externalServices.rentalApiBaseUrl | quote }}
+            - name: Jwt__JwksUrl
+              value: http://autohub-auth:8080/.well-known/jwks.json
+            {{- end }}
+            {{- if ne $name "apiGateway" }}
+            {{- if ne $name "auth" }}
+            - name: Jwt__JwksUrl
+              value: http://autohub-auth:8080/.well-known/jwks.json
+            {{- end }}
+            {{- end }}
           readinessProbe:
             httpGet:
               path: /health/ready
-              port: 8080
+              port: {{ $svc.port }}
             initialDelaySeconds: 10
             periodSeconds: 10
           livenessProbe:
             httpGet:
               path: /health/live
-              port: 8080
+              port: {{ $svc.port }}
             initialDelaySeconds: 15
             periodSeconds: 20
-{{- end }}
 {{- end }}

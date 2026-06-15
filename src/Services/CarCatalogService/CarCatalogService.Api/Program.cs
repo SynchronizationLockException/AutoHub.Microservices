@@ -8,6 +8,7 @@ var builder = WebApplication.CreateBuilder(args);
 builder.Host.UseAutoHubSerilog();
 
 builder.Services.AddCarCatalogService(builder.Configuration);
+ProductionSecretValidationExtensions.ValidateProductionSecrets(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
@@ -24,6 +25,7 @@ if (app.Environment.IsDevelopment())
 
 await app.Services.InitializeCatalogDataAsync(runMigrations: app.Environment.IsDevelopment());
 
+app.UseAutoHubProblemDetails();
 app.UseAutoHubCorrelationId();
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();

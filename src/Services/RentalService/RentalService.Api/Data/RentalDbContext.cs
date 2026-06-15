@@ -17,6 +17,9 @@ public sealed class RentalDbContext(DbContextOptions<RentalDbContext> options) :
 
         modelBuilder.Entity<SagaInstance>()
             .HasIndex(x => new { x.Type, x.State });
+
+        modelBuilder.Entity<SagaInstance>()
+            .HasIndex(x => new { x.Type, x.EntityId });
         modelBuilder.Entity<RentalContract>()
             .HasIndex(x => new { x.OwnerUsername, x.CreatedAtUtc });
 

@@ -28,8 +28,19 @@ namespace NotificationService.Api.Migrations
                         .ValueGeneratedOnAdd()
                         .HasColumnType("uuid");
 
+                    b.Property<string>("Channel")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.Property<DateTime>("DeliveredOnUtc")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Detail")
+                        .HasColumnType("text");
+
+                    b.Property<string>("OwnerUsername")
+                        .IsRequired()
+                        .HasColumnType("text");
 
                     b.Property<string>("PayloadJson")
                         .IsRequired()
@@ -39,9 +50,15 @@ namespace NotificationService.Api.Migrations
                         .IsRequired()
                         .HasColumnType("text");
 
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("text");
+
                     b.HasKey("Id");
 
                     b.HasIndex("DeliveredOnUtc");
+
+                    b.HasIndex("OwnerUsername");
 
                     b.ToTable("NotificationDeliveries");
                 });

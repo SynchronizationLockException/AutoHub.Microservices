@@ -13,9 +13,16 @@ public static class ReservationEndpoints
         app.MapPost("/api/cars/{carId:guid}/reservations", async (
             Guid carId,
             CreateReservationRequest request,
+            HttpContext httpContext,
+            IConfiguration configuration,
             ReservationService reservations,
             CancellationToken ct) =>
         {
+            if (!httpContext.IsValidInternalRequest(configuration))
+            {
+                return Results.Unauthorized();
+            }
+
             var (success, error) = await reservations.TryReserveAsync(carId, request, ct);
             if (success is null)
             {
@@ -28,9 +35,16 @@ public static class ReservationEndpoints
         app.MapGet("/api/cars/{carId:guid}/reservations/{reservationId:guid}", async (
             Guid carId,
             Guid reservationId,
+            HttpContext httpContext,
+            IConfiguration configuration,
             CarCatalogDbContext db,
             CancellationToken ct) =>
         {
+            if (!httpContext.IsValidInternalRequest(configuration))
+            {
+                return Results.Unauthorized();
+            }
+
             var reservation = await db.Reservations.AsNoTracking()
                 .FirstOrDefaultAsync(x => x.Id == reservationId && x.CarId == carId, ct);
             return reservation is null
@@ -47,9 +61,16 @@ public static class ReservationEndpoints
         app.MapDelete("/api/cars/{carId:guid}/reservations/{reservationId:guid}", async (
             Guid carId,
             Guid reservationId,
+            HttpContext httpContext,
+            IConfiguration configuration,
             ReservationService reservations,
             CancellationToken ct) =>
         {
+            if (!httpContext.IsValidInternalRequest(configuration))
+            {
+                return Results.Unauthorized();
+            }
+
             var (success, error) = await reservations.TryReleaseAsync(carId, reservationId, ct);
             if (success is null)
             {

@@ -103,12 +103,10 @@ public static class RentalEndpoints
         }
 
         var correlationId = httpContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N");
-        var bearer = httpContext.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase);
         var (rental, error) = await sagaService.StartCreateRentalAsync(
             request,
             ownerUsername,
             correlationId,
-            string.IsNullOrWhiteSpace(bearer) ? null : bearer,
             ct);
         if (error is not null)
         {

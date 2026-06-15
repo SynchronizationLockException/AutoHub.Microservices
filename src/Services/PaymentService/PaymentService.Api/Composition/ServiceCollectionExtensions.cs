@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddPaymentService(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOpenApi();
+        services.AddAutoHubProblemDetails();
         services.AddHealthChecks()
             .AddAutoHubLiveness()
             .AddDbContextCheck<PaymentDbContext>(tags: [HealthCheckTags.Ready])

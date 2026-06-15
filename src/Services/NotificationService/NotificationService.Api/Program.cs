@@ -5,8 +5,10 @@ using NotificationService.Api.Data;
 using NotificationService.Api.Endpoints;
 
 var builder = WebApplication.CreateBuilder(args);
+builder.Host.UseAutoHubSerilog();
 
 builder.Services.AddNotificationService(builder.Configuration);
+ProductionSecretValidationExtensions.ValidateProductionSecrets(builder.Configuration, builder.Environment);
 
 var app = builder.Build();
 
@@ -23,6 +25,8 @@ if (app.Environment.IsDevelopment())
 
 await app.Services.InitializeNotificationDataAsync(runMigrations: app.Environment.IsDevelopment());
 
+app.UseAutoHubProblemDetails();
+app.UseAutoHubCorrelationId();
 app.MapAutoHubHealthEndpoints();
 app.UseAuthentication();
 app.UseAuthorization();

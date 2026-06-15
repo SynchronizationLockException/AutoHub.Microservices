@@ -14,6 +14,7 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddRentalService(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOpenApi();
+        services.AddAutoHubProblemDetails();
         services.AddHealthChecks()
             .AddAutoHubLiveness()
             .AddDbContextCheck<RentalDbContext>(tags: [HealthCheckTags.Ready])

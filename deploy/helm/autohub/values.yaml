@@ -2,29 +2,74 @@ imageRegistry: ghcr.io/autohub
 imageTag: latest
 internalApiSecret: change-me-internal-secret
 
+ingress:
+  enabled: true
+  host: autohub.local
+  className: nginx
+
 postgres:
+  host: postgres
+  port: 5432
+  user: postgres
   password: change-me
 
 rabbitmq:
+  host: rabbitmq
+  port: 5672
   user: autohub
   password: change-me
+
+auth:
+  jwtIssuer: AutoHub.Auth
+  jwtAudience: AutoHub.Clients
+  jwtPrivateKeyPem: ""
+
+observability:
+  otlpEndpoint: http://otel-collector:4317
 
 services:
   apiGateway:
     replicas: 1
     port: 8080
+    image: autohub-api-gateway
   carCatalog:
     replicas: 1
+    port: 8080
+    image: autohub-car-catalog
+    database: catalogdb
+    connectionStringKey: CatalogDb
   rental:
     replicas: 1
+    port: 8080
+    image: autohub-rental
+    database: rentaldb
+    connectionStringKey: RentalDb
   sales:
     replicas: 1
+    port: 8080
+    image: autohub-sales
+    database: salesdb
+    connectionStringKey: SalesDb
   payment:
     replicas: 1
+    port: 8080
+    image: autohub-payment
+    database: paymentdb
+    connectionStringKey: PaymentDb
   auth:
     replicas: 1
+    port: 8080
+    image: autohub-auth
+    database: authdb
+    connectionStringKey: AuthDb
   notification:
     replicas: 1
+    port: 8080
+    image: autohub-notification
+    database: notificationdb
+    connectionStringKey: NotificationDb
 
-observability:
-  otlpEndpoint: http://otel-collector:4317
+externalServices:
+  catalogApiBaseUrl: http://autohub-carCatalog:8080
+  rentalApiBaseUrl: http://autohub-rental:8080
+  salesApiBaseUrl: http://autohub-sales:8080

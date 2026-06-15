@@ -31,6 +31,7 @@
     <Project Path="src/Services/NotificationService/NotificationService.Api/NotificationService.Api.csproj" />
   </Folder>
   <Folder Name="/tests/">
+    <Project Path="tests/AutoHub.BuildingBlocks.Tests/AutoHub.BuildingBlocks.Tests.csproj" />
     <Project Path="tests/AutoHub.IntegrationTests/AutoHub.IntegrationTests.csproj" />
   </Folder>
 </Solution>

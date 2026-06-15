@@ -6,6 +6,7 @@ public sealed class SagaInstance
     public string CorrelationId { get; init; } = string.Empty;
     public string Type { get; init; } = string.Empty;
     public string State { get; set; } = string.Empty;
+    public Guid? EntityId { get; set; }
     public string StepDataJson { get; set; } = "{}";
     public DateTime CreatedAtUtc { get; init; } = DateTime.UtcNow;
     public DateTime UpdatedAtUtc { get; set; } = DateTime.UtcNow;

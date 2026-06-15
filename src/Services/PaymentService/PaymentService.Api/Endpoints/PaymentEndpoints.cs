@@ -180,7 +180,8 @@ public static class PaymentEndpoints
                 payment.ReferenceKind.ToString(),
                 payment.ReferenceId,
                 payment.Amount,
-                payment.Currency))
+                payment.Currency,
+                payment.OwnerUsername))
         });
 
         try

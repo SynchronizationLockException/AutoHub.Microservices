@@ -14,8 +14,8 @@ public static class AuthEndpoints
             .AllowAnonymous()
             .RequireRateLimiting("login");
 
-        app.MapPost("/api/auth/refresh", RefreshAsync).AllowAnonymous();
-        app.MapPost("/api/auth/revoke", RevokeAsync).AllowAnonymous();
+        app.MapPost("/api/auth/refresh", RefreshAsync).AllowAnonymous().RequireRateLimiting("auth-token");
+        app.MapPost("/api/auth/revoke", RevokeAsync).AllowAnonymous().RequireRateLimiting("auth-token");
     }
 
     private static async Task<IResult> LoginAsync(

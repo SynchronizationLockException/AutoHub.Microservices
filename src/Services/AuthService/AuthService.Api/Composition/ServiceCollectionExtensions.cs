@@ -13,8 +13,9 @@ public static class ServiceCollectionExtensions
     public static IServiceCollection AddAuthService(this IServiceCollection services, IConfiguration configuration)
     {
         services.AddOpenApi();
+        services.AddAutoHubProblemDetails();
         services.AddDbContext<AuthDbContext>(options =>
-            options.UseNpgsql(configuration.GetConnectionString("AuthDb")));
+            options.UseNpgsql(configuration.GetRequiredConnectionString("AuthDb")));
         services.AddSingleton<RsaJwtSigningKeys>();
         services.AddSingleton<TokenService>();
         services.AddOpenTelemetryObservability(configuration, "auth-service");
@@ -27,6 +28,19 @@ public static class ServiceCollectionExtensions
         {
             options.RejectionStatusCode = StatusCodes.Status429TooManyRequests;
             options.AddPolicy("login", context =>
+            {
+                var partitionKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+                return RateLimitPartition.GetFixedWindowLimiter(
+                    partitionKey,
+                    _ => new FixedWindowRateLimiterOptions
+                    {
+                        PermitLimit = 20,
+                        Window = TimeSpan.FromMinutes(1),
+                        QueueLimit = 0,
+                        AutoReplenishment = true
+                    });
+            });
+            options.AddPolicy("auth-token", context =>
             {
                 var partitionKey = context.Connection.RemoteIpAddress?.ToString() ?? "unknown";
                 return RateLimitPartition.GetFixedWindowLimiter(

@@ -105,12 +105,10 @@ public static class SalesEndpoints
 
         var ownerUsername = customerLogin.ToLowerInvariant();
         var correlationId = httpContext.GetCorrelationId() ?? Guid.NewGuid().ToString("N");
-        var bearer = httpContext.Request.Headers.Authorization.ToString().Replace("Bearer ", "", StringComparison.OrdinalIgnoreCase);
         var (sale, error) = await sagaService.StartCreateSaleAsync(
             request,
             ownerUsername,
             correlationId,
-            string.IsNullOrWhiteSpace(bearer) ? null : bearer,
             ct);
         if (error is not null)
         {

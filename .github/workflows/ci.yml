@@ -20,14 +20,21 @@ jobs:
       - name: Restore
         run: dotnet restore AutoHub.Microservices.slnx
 
+      - name: Check vulnerable packages
+        run: dotnet list AutoHub.Microservices.slnx package --vulnerable --include-transitive
+
       - name: Build
         run: dotnet build AutoHub.Microservices.slnx -c Release --no-restore
 
-      - name: Test
-        run: dotnet test AutoHub.Microservices.slnx -c Release --no-build --verbosity normal --logger "trx;LogFileName=test-results.trx" --collect:"XPlat Code Coverage" --results-directory ./TestResults
+      - name: Test with coverage gate
+        run: |
+          dotnet test AutoHub.Microservices.slnx -c Release --no-build --verbosity normal \
+            --logger "trx;LogFileName=test-results.trx" \
+            --collect:"XPlat Code Coverage" \
+            --results-directory ./TestResults \
+            -- DataCollectionRunSettings.DataCollectors.DataCollector.Configuration.Threshold=60
 
-      - name: Load smoke (non-blocking)
-        continue-on-error: true
+      - name: Load smoke
         run: dotnet test tests/AutoHub.IntegrationTests/AutoHub.IntegrationTests.csproj -c Release --no-build --verbosity normal --filter "Category=LoadSmoke"
 
       - name: Upload test and coverage artifacts

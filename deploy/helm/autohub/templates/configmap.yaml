@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: autohub-config
+data:
+  Observability__OtlpEndpoint: {{ .Values.observability.otlpEndpoint | quote }}
+  Jwt__Issuer: {{ .Values.auth.jwtIssuer | quote }}
+  Jwt__Audience: {{ .Values.auth.jwtAudience | quote }}
+  RabbitMq__Host: {{ .Values.rabbitmq.host | quote }}
+  RabbitMq__Port: {{ .Values.rabbitmq.port | quote }}
+  ExternalServices__CatalogApiBaseUrl: {{ .Values.externalServices.catalogApiBaseUrl | quote }}
+  ExternalServices__RentalApiBaseUrl: {{ .Values.externalServices.rentalApiBaseUrl | quote }}
+  ExternalServices__SalesApiBaseUrl: {{ .Values.externalServices.salesApiBaseUrl | quote }}
